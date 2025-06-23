@@ -1281,7 +1281,7 @@ for i, (scenario_name, params) in enumerate(scenarios.items()):
 
         st.write(f"**Net Present Value (NPV):** {currency_symbol}{result['npv']:,.0f}")
         st.write(f"**Return on Investment (ROI):** {result['roi']*100:.1f}%")
-        st.write(f"**Payback Period (Years):** {result['payback']}")
+        #st.write(f"**Payback Period (Years):** {result['payback']}")
         st.write(f"**Payback Period (Months):** {result['payback_months']}") # New monthly payback display
 
         # Display cash flows in a table
