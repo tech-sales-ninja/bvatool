@@ -1094,10 +1094,6 @@ def generate_executive_report_pdf(summary_data, scenario_results, solution_name,
          Paragraph(f"{scenario_results['Conservative']['roi']*100:.1f}%", styles['Normal']),
          Paragraph(f"{scenario_results['Expected']['roi']*100:.1f}%", styles['Normal']),
          Paragraph(f"{scenario_results['Optimistic']['roi']*100:.1f}%", styles['Normal'])],
-        [Paragraph('Payback Period (Years)', styles['Normal']),
-         Paragraph(scenario_results['Conservative']['payback'], styles['Normal']),
-         Paragraph(scenario_results['Expected']['payback'], styles['Normal']),
-         Paragraph(scenario_results['Optimistic']['payback'], styles['Normal'])],
         [Paragraph('Payback Period (Months)', styles['Normal']),
          Paragraph(scenario_results['Conservative']['payback_months'], styles['Normal']),
          Paragraph(scenario_results['Expected']['payback_months'], styles['Normal']),
@@ -1281,7 +1277,7 @@ for i, (scenario_name, params) in enumerate(scenarios.items()):
 
         st.write(f"**Net Present Value (NPV):** {currency_symbol}{result['npv']:,.0f}")
         st.write(f"**Return on Investment (ROI):** {result['roi']*100:.1f}%")
-        #st.write(f"**Payback Period (Years):** {result['payback']}")
+        st.write(f"**Payback Period (Years):** {result['payback']}")
         st.write(f"**Payback Period (Months):** {result['payback_months']}") # New monthly payback display
 
         # Display cash flows in a table
