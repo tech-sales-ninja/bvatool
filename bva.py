@@ -1,4 +1,4 @@
-# v1.6 - June 2025 - Added Export/Import Configuration functionality
+# v1.7 - June 2025 - Enhanced with NPV explanations, validation, and improved visualizations
 
 import streamlit as st
 import numpy as np
@@ -27,6 +27,195 @@ except ImportError:
 
 # Set page configuration
 st.set_page_config(page_title="Business Value Assessment Tool", layout="wide")
+
+# --- VALIDATION FUNCTIONS ---
+
+def validate_inputs():
+    """Validate user inputs and return warnings/errors"""
+    warnings = []
+    errors = []
+    
+    # Check for negative values where they don't make sense
+    if platform_cost < 0:
+        errors.append("Platform cost cannot be negative")
+    if services_cost < 0:
+        errors.append("Services cost cannot be negative")
+    
+    # Check for unrealistic percentages
+    if alert_reduction_pct > 90:
+        warnings.append("Alert reduction >90% may be unrealistic")
+    if incident_reduction_pct > 90:
+        warnings.append("Incident reduction >90% may be unrealistic")
+    if mttr_improvement_pct > 80:
+        warnings.append("MTTR improvement >80% may be unrealistic")
+    
+    # Check for missing critical inputs
+    if platform_cost == 0 and services_cost == 0:
+        warnings.append("Both platform and services costs are zero - is this correct?")
+    
+    # Check for inconsistent FTE data
+    if alert_volume > 0 and alert_ftes == 0:
+        warnings.append("You have alert volume but no FTEs assigned to alerts")
+    if incident_volume > 0 and incident_ftes == 0:
+        warnings.append("You have incident volume but no FTEs assigned to incidents")
+    
+    # Check working hours logic
+    if working_hours_per_fte_per_year < 1000:
+        warnings.append("Working hours per FTE seems very low (<1000 hours/year)")
+    if working_hours_per_fte_per_year > 3000:
+        warnings.append("Working hours per FTE seems very high (>3000 hours/year)")
+    
+    # Check alert/incident time logic
+    if alert_volume > 0 and avg_alert_triage_time == 0:
+        warnings.append("Alert volume exists but triage time is zero")
+    if incident_volume > 0 and avg_incident_triage_time == 0:
+        warnings.append("Incident volume exists but triage time is zero")
+    
+    return warnings, errors
+
+def check_calculation_health():
+    """Check if calculations produce reasonable results"""
+    issues = []
+    
+    # Check if time allocation exceeds 100%
+    if 'alert_fte_percentage' in globals() and alert_fte_percentage > 1.0:
+        issues.append(f"Alert management requires {alert_fte_percentage*100:.1f}% of FTE time (>100%)")
+    if 'incident_fte_percentage' in globals() and incident_fte_percentage > 1.0:
+        issues.append(f"Incident management requires {incident_fte_percentage*100:.1f}% of FTE time (>100%)")
+    
+    # Check if benefits seem unrealistically high
+    total_fte_costs = avg_alert_fte_salary * alert_ftes + avg_incident_fte_salary * incident_ftes
+    if total_fte_costs > 0 and total_annual_benefits > total_fte_costs * 2:
+        issues.append("Total annual benefits exceed 2x total FTE costs - please verify assumptions")
+    
+    return issues
+
+# --- ENHANCED VISUALIZATION FUNCTIONS ---
+
+def create_benefit_breakdown_chart(currency_symbol):
+    """Create a detailed breakdown of benefits by category"""
+    
+    benefits_data = {
+        'Category': [
+            'Alert Reduction', 'Alert Triage Efficiency', 'Incident Reduction', 
+            'Incident Triage Efficiency', 'MTTR Improvement', 'Tool Consolidation',
+            'People Efficiency', 'FTE Avoidance', 'SLA Penalty Avoidance',
+            'Revenue Growth', 'CAPEX Savings', 'OPEX Savings'
+        ],
+        'Annual Value': [
+            alert_reduction_savings, alert_triage_savings, incident_reduction_savings,
+            incident_triage_savings, major_incident_savings, tool_savings,
+            people_cost_per_year, fte_avoidance, sla_penalty_avoidance,
+            revenue_growth, capex_savings, opex_savings
+        ],
+        'Category Type': [
+            'Operational', 'Operational', 'Operational', 'Operational', 'Operational',
+            'Cost Reduction', 'Efficiency', 'Strategic', 'Risk Mitigation',
+            'Revenue', 'Cost Reduction', 'Cost Reduction'
+        ]
+    }
+    
+    df = pd.DataFrame(benefits_data)
+    df = df[df['Annual Value'] > 0]  # Only show categories with value
+    
+    if len(df) == 0:
+        return None
+    
+    fig = px.bar(df, x='Annual Value', y='Category', color='Category Type',
+                 title='Annual Benefits Breakdown by Category',
+                 labels={'Annual Value': f'Annual Value ({currency_symbol})', 'Category': 'Benefit Category'},
+                 orientation='h')
+    
+    fig.update_layout(height=400, yaxis={'categoryorder': 'total ascending'})
+    
+    # Add value labels
+    for i, (idx, row) in enumerate(df.iterrows()):
+        fig.add_annotation(x=row['Annual Value'], y=i, text=f'{currency_symbol}{row["Annual Value"]:,.0f}',
+                          showarrow=False, xanchor='left', font=dict(color='white', size=10))
+    
+    return fig
+
+def create_cost_vs_benefit_waterfall(currency_symbol):
+    """Create a waterfall chart showing cost vs benefits"""
+    
+    # Prepare data for waterfall chart
+    categories = ['Starting Point', 'Alert Savings', 'Incident Savings', 'MTTR Savings', 
+                 'Additional Benefits', 'Platform Cost', 'Services Cost', 'Net Position']
+    
+    values = [0, 
+             alert_reduction_savings + alert_triage_savings,
+             incident_reduction_savings + incident_triage_savings,
+             major_incident_savings,
+             tool_savings + people_cost_per_year + fte_avoidance + sla_penalty_avoidance + revenue_growth + capex_savings + opex_savings,
+             -platform_cost,
+             -services_cost,
+             0]  # Will be calculated
+    
+    # Calculate cumulative for net position
+    values[-1] = sum(values[1:-1])
+    
+    fig = go.Figure(go.Waterfall(
+        name="Annual Impact",
+        orientation="v",
+        measure=["relative", "relative", "relative", "relative", "relative", "relative", "relative", "total"],
+        x=categories,
+        y=values,
+        connector={"line": {"color": "rgb(63, 63, 63)"}},
+        text=[f"{currency_symbol}{v:,.0f}" for v in values],
+        textposition="outside"
+    ))
+    
+    fig.update_layout(
+        title="Annual Cost vs Benefits Waterfall Analysis",
+        showlegend=False,
+        height=500,
+        yaxis_title=f"Value ({currency_symbol})"
+    )
+    
+    return fig
+
+def create_roi_comparison_chart(scenario_results, currency_symbol):
+    """Create ROI comparison across scenarios with confidence intervals"""
+    
+    scenarios_list = list(scenario_results.keys())
+    rois = [scenario_results[scenario]['roi'] * 100 for scenario in scenarios_list]
+    npvs = [scenario_results[scenario]['npv'] for scenario in scenarios_list]
+    colors_list = [scenario_results[scenario]['color'] for scenario in scenarios_list]
+    
+    # Create subplot with secondary y-axis
+    fig = go.Figure()
+    
+    # Add ROI bars
+    fig.add_trace(go.Bar(
+        name='ROI (%)',
+        x=scenarios_list,
+        y=rois,
+        marker_color=colors_list,
+        text=[f'{roi:.1f}%' for roi in rois],
+        textposition='outside',
+        yaxis='y'
+    ))
+    
+    # Add NPV line
+    fig.add_trace(go.Scatter(
+        name='NPV',
+        x=scenarios_list,
+        y=npvs,
+        mode='lines+markers',
+        line=dict(color='black', width=3),
+        marker=dict(size=10),
+        yaxis='y2'
+    ))
+    
+    fig.update_layout(
+        title='ROI and NPV Comparison Across Scenarios',
+        xaxis_title='Scenario',
+        yaxis=dict(title='ROI (%)', side='left'),
+        yaxis2=dict(title=f'NPV ({currency_symbol})', side='right', overlaying='y'),
+        height=400
+    )
+    
+    return fig
 
 # --- EXPORT/IMPORT FUNCTIONS ---
 
@@ -213,7 +402,7 @@ def export_to_json(input_values):
     export_data = {
         'metadata': {
             'export_date': datetime.now().isoformat(),
-            'version': '1.6',
+            'version': '1.7',
             'tool': 'BVA Business Value Assessment'
         },
         'configuration': input_values
@@ -587,6 +776,25 @@ discount_rate = st.sidebar.slider(
     0, 20, 10,
     key="discount_rate"
 ) / 100
+
+# --- INPUT VALIDATION ---
+st.sidebar.markdown("---")
+st.sidebar.subheader("🔍 Input Validation")
+
+warnings, errors = validate_inputs()
+
+if errors:
+    st.sidebar.error("❌ Please fix these errors:")
+    for error in errors:
+        st.sidebar.error(f"• {error}")
+
+if warnings:
+    st.sidebar.warning("⚠️ Please review these items:")
+    for warning in warnings:
+        st.sidebar.warning(f"• {warning}")
+
+if not errors and not warnings:
+    st.sidebar.success("✅ All inputs look good!")
 
 # --- CORRECTED CALCULATIONS WITH CONFIGURABLE WORKING HOURS ---
 
@@ -1222,6 +1430,14 @@ def generate_executive_report_pdf(summary_data, scenario_results, solution_name,
 st.title(f"Business Value Assessment for {solution_name} Implementation")
 st.markdown("This tool helps estimate the financial impact of implementing the solution, providing a comprehensive business case with scenario analysis.")
 
+# Display calculation health check in main area
+calc_issues = check_calculation_health()
+if calc_issues:
+    st.warning("⚠️ **Calculation Health Check:**")
+    for issue in calc_issues:
+        st.warning(f"• {issue}")
+    st.info("💡 Consider adjusting your inputs if these don't seem realistic.")
+
 st.header("Financial Impact Summary")
 
 # --- Key Metrics Cards ---
@@ -1255,6 +1471,123 @@ else:
 
 st.markdown("---")
 
+# --- NPV CALCULATION METHODOLOGY ---
+st.header("💡 How NPV is Calculated")
+with st.expander("Click to understand the NPV calculation methodology", expanded=False):
+    st.markdown("### Net Present Value (NPV) Calculation Methodology")
+    
+    st.markdown("""
+    **NPV Formula:** NPV = Σ [Net Cash Flow / (1 + Discount Rate)^Year] for each year
+    
+    **Our NPV calculation considers:**
+    """)
+    
+    # Create step-by-step breakdown
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        st.markdown("""
+        **📊 Cash Flow Components:**
+        - **Benefits**: Alert/incident savings, efficiency gains, tool consolidation
+        - **Platform Costs**: Annual subscription fees
+        - **Services Costs**: One-time implementation costs (Year 1 only)
+        - **Implementation Delay**: Benefits start after go-live
+        - **Ramp-up Period**: Gradual benefit realization
+        """)
+    
+    with col2:
+        st.markdown(f"""
+        **⚙️ Your Current Settings:**
+        - **Discount Rate**: {discount_rate*100:.1f}%
+        - **Evaluation Period**: {evaluation_years} years
+        - **Implementation Delay**: {implementation_delay_months} months
+        - **Ramp-up Period**: {benefits_ramp_up_months} months
+        """)
+    
+    # Show year-by-year NPV breakdown for Expected scenario
+    st.markdown("### Year-by-Year NPV Breakdown (Expected Scenario)")
+    
+    expected_cash_flows = scenario_results['Expected']['cash_flows']
+    npv_breakdown_data = []
+    
+    for cf in expected_cash_flows:
+        present_value = cf['net_cash_flow'] / ((1 + discount_rate) ** cf['year'])
+        npv_breakdown_data.append({
+            'Year': cf['year'],
+            'Annual Benefits': f"{currency_symbol}{cf['benefits']:,.0f}",
+            'Platform Cost': f"{currency_symbol}{cf['platform_cost']:,.0f}",
+            'Services Cost': f"{currency_symbol}{cf['services_cost']:,.0f}",
+            'Net Cash Flow': f"{currency_symbol}{cf['net_cash_flow']:,.0f}",
+            'Discount Factor': f"1/(1+{discount_rate:.1%})^{cf['year']} = {1/((1+discount_rate)**cf['year']):.3f}",
+            'Present Value': f"{currency_symbol}{present_value:,.0f}",
+            'Benefit Realization': f"{cf['realization_factor']*100:.1f}%"
+        })
+    
+    npv_df = pd.DataFrame(npv_breakdown_data)
+    st.dataframe(npv_df, hide_index=True, use_container_width=True)
+    
+    total_npv = sum([cf['net_cash_flow'] / ((1 + discount_rate) ** cf['year']) for cf in expected_cash_flows])
+    st.success(f"**Total NPV = {currency_symbol}{total_npv:,.0f}**")
+    
+    st.markdown("""
+    **💡 Key NPV Insights:**
+    - **Positive NPV** indicates the investment creates value
+    - **Higher discount rates** reduce NPV (more conservative)
+    - **Implementation delays** reduce early cash flows and NPV
+    - **Ramp-up periods** reflect realistic adoption curves
+    """)
+
+# Add sensitivity analysis for NPV
+st.subheader("NPV Sensitivity Analysis")
+st.write("See how changes in key assumptions affect NPV:")
+
+sensitivity_col1, sensitivity_col2 = st.columns(2)
+
+with sensitivity_col1:
+    # Discount rate sensitivity
+    discount_rates = [0.05, 0.08, 0.10, 0.12, 0.15, 0.20]
+    npv_by_discount = []
+    
+    for dr in discount_rates:
+        npv = sum([cf['net_cash_flow'] / ((1 + dr) ** cf['year']) for cf in expected_cash_flows])
+        npv_by_discount.append(npv)
+    
+    fig_discount = px.line(
+        x=[dr*100 for dr in discount_rates], 
+        y=npv_by_discount,
+        labels={'x': 'Discount Rate (%)', 'y': f'NPV ({currency_symbol})'},
+        title='NPV Sensitivity to Discount Rate'
+    )
+    fig_discount.add_hline(y=0, line_dash="dash", line_color="red")
+    st.plotly_chart(fig_discount, use_container_width=True)
+
+with sensitivity_col2:
+    # Benefits sensitivity
+    benefit_multipliers = [0.5, 0.7, 0.8, 1.0, 1.2, 1.3, 1.5]
+    npv_by_benefits = []
+    
+    for mult in benefit_multipliers:
+        adjusted_flows = []
+        for cf in expected_cash_flows:
+            adjusted_cf = cf.copy()
+            adjusted_cf['benefits'] = cf['benefits'] * mult
+            adjusted_cf['net_cash_flow'] = adjusted_cf['benefits'] - cf['platform_cost'] - cf['services_cost']
+            adjusted_flows.append(adjusted_cf)
+        
+        npv = sum([cf['net_cash_flow'] / ((1 + discount_rate) ** cf['year']) for cf in adjusted_flows])
+        npv_by_benefits.append(npv)
+    
+    fig_benefits = px.line(
+        x=[mult*100 for mult in benefit_multipliers], 
+        y=npv_by_benefits,
+        labels={'x': 'Benefits Realization (%)', 'y': f'NPV ({currency_symbol})'},
+        title='NPV Sensitivity to Benefits Realization'
+    )
+    fig_benefits.add_hline(y=0, line_dash="dash", line_color="red")
+    st.plotly_chart(fig_benefits, use_container_width=True)
+
+st.markdown("---")
+
 # --- Scenario Analysis ---
 st.header("Scenario Analysis")
 st.info("Explore the potential financial outcomes under different assumptions.")
@@ -1278,7 +1611,7 @@ for i, (scenario_name, params) in enumerate(scenarios.items()):
         st.write(f"**Net Present Value (NPV):** {currency_symbol}{result['npv']:,.0f}")
         st.write(f"**Return on Investment (ROI):** {result['roi']*100:.1f}%")
         st.write(f"**Payback Period (Years):** {result['payback']}")
-        st.write(f"**Payback Period (Months):** {result['payback_months']}") # New monthly payback display
+        st.write(f"**Payback Period (Months):** {result['payback_months']}")
 
         # Display cash flows in a table
         st.markdown("#### Detailed Cash Flows")
@@ -1305,6 +1638,102 @@ for i, (scenario_name, params) in enumerate(scenarios.items()):
             'realization_factor': 'Benefit Realization Factor'
         }), hide_index=True)
 
+st.markdown("---")
+
+# --- Enhanced Financial Analysis ---
+st.subheader("📊 Detailed Financial Analysis")
+
+# Create tabs for different visualizations
+viz_tabs = st.tabs(["Benefits Breakdown", "Cost vs Benefits", "ROI Analysis", "Time-based Analysis"])
+
+with viz_tabs[0]:
+    benefits_chart = create_benefit_breakdown_chart(currency_symbol)
+    if benefits_chart:
+        st.plotly_chart(benefits_chart, use_container_width=True)
+    else:
+        st.info("No benefits to display. Please enter some benefit values in the sidebar.")
+    
+    # Add summary statistics
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        operational_savings = alert_reduction_savings + alert_triage_savings + incident_reduction_savings + incident_triage_savings + major_incident_savings
+        st.metric("Operational Savings", f"{currency_symbol}{operational_savings:,.0f}")
+    with col2:
+        cost_reduction = tool_savings + capex_savings + opex_savings
+        st.metric("Cost Reduction", f"{currency_symbol}{cost_reduction:,.0f}")
+    with col3:
+        strategic_value = people_cost_per_year + fte_avoidance + revenue_growth + sla_penalty_avoidance
+        st.metric("Strategic Value", f"{currency_symbol}{strategic_value:,.0f}")
+
+with viz_tabs[1]:
+    st.plotly_chart(create_cost_vs_benefit_waterfall(currency_symbol), use_container_width=True)
+
+with viz_tabs[2]:
+    st.plotly_chart(create_roi_comparison_chart(scenario_results, currency_symbol), use_container_width=True)
+    
+    # Add break-even analysis
+    st.subheader("Break-even Analysis")
+    total_investment = platform_cost * evaluation_years + services_cost
+    if total_investment > 0:
+        break_even_benefits = total_investment / evaluation_years
+        st.write(f"**Required annual benefits to break even:** {currency_symbol}{break_even_benefits:,.0f}")
+        st.write(f"**Actual annual benefits (Expected):** {currency_symbol}{total_annual_benefits:,.0f}")
+        if break_even_benefits > 0:
+            benefit_margin = ((total_annual_benefits - break_even_benefits) / break_even_benefits) * 100
+            st.write(f"**Safety margin:** {benefit_margin:+.1f}%")
+    else:
+        st.write("**No investment costs entered - cannot calculate break-even point**")
+
+with viz_tabs[3]:
+    # Enhanced timeline analysis
+    months_range = list(range(0, evaluation_years * 12 + 1))
+    cumulative_benefits = []
+    cumulative_costs = []
+    cumulative_net = []
+    
+    cum_benefit = 0
+    cum_cost = services_cost  # Initial services cost
+    
+    for month in months_range:
+        if month > 0:
+            factor = calculate_benefit_realization_factor(month, implementation_delay_months, benefits_ramp_up_months)
+            monthly_benefit = (total_annual_benefits / 12) * factor
+            monthly_cost = platform_cost / 12
+            
+            cum_benefit += monthly_benefit
+            cum_cost += monthly_cost
+        
+        cumulative_benefits.append(cum_benefit)
+        cumulative_costs.append(cum_cost)
+        cumulative_net.append(cum_benefit - cum_cost)
+    
+    fig_cumulative = go.Figure()
+    
+    fig_cumulative.add_trace(go.Scatter(
+        x=months_range, y=cumulative_benefits, mode='lines', name='Cumulative Benefits',
+        line=dict(color='green', width=2), fill='tonexty'
+    ))
+    
+    fig_cumulative.add_trace(go.Scatter(
+        x=months_range, y=cumulative_costs, mode='lines', name='Cumulative Costs',
+        line=dict(color='red', width=2)
+    ))
+    
+    fig_cumulative.add_trace(go.Scatter(
+        x=months_range, y=cumulative_net, mode='lines', name='Net Position',
+        line=dict(color='blue', width=3, dash='dash')
+    ))
+    
+    fig_cumulative.add_hline(y=0, line_dash="dot", line_color="black")
+    
+    fig_cumulative.update_layout(
+        title='Cumulative Financial Impact Over Time',
+        xaxis_title='Months from Project Start',
+        yaxis_title=f'Cumulative Value ({currency_symbol})',
+        height=400
+    )
+    
+    st.plotly_chart(fig_cumulative, use_container_width=True)
 
 st.markdown("---")
 
@@ -1355,7 +1784,6 @@ fig_monthly_cf.add_hline(y=0, line_dash="dash", line_color="red", annotation_tex
 fig_monthly_cf.update_layout(hovermode="x unified")
 st.plotly_chart(fig_monthly_cf, use_container_width=True)
 
-
 st.markdown("---")
 
 # Implementation Timeline Chart
@@ -1368,7 +1796,6 @@ timeline_fig = create_implementation_timeline_chart(
     total_annual_benefits
 )
 st.plotly_chart(timeline_fig, use_container_width=True)
-
 
 st.markdown("---")
 
@@ -1473,7 +1900,6 @@ with stakeholder_tabs[4]: # Service Desk Manager
     * **Clearer Communication:** Provides real-time status and impact assessments, improving communication with end-users during outages.
     """)
 
-
 st.markdown("---")
 
 # --- Executive Report Generation ---
@@ -1500,3 +1926,261 @@ if REPORT_DEPENDENCIES_AVAILABLE:
 else:
     st.warning("To generate PDF reports, please install `reportlab` and `matplotlib` (`pip install reportlab matplotlib`).")
 
+st.markdown("---")
+
+# --- ADVANCED FEATURES ---
+st.header("🎯 Advanced Analysis Tools")
+
+advanced_tabs = st.tabs(["What-If Analysis", "Risk Assessment"])
+
+with advanced_tabs[0]:
+    st.subheader("📊 What-If Analysis")
+    st.info("💡 **Simple Explanation:** This shows you how your results could vary if things don't go exactly as planned. Think of it like asking 'What if costs are higher?' or 'What if benefits are lower?'")
+    
+    st.markdown("### Interactive Scenario Testing")
+    st.write("Adjust the sliders below to see how changes affect your NPV and ROI:")
+    
+    # Interactive what-if sliders
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        benefits_variation = st.slider(
+            "Benefits Realization (%)", 
+            50, 150, 100, 5,
+            help="What if you only get 80% of expected benefits, or 120%?"
+        )
+        cost_variation = st.slider(
+            "Cost Variation (%)", 
+            80, 150, 100, 5,
+            help="What if costs are 20% higher than expected?"
+        )
+    
+    with col2:
+        delay_variation = st.slider(
+            "Implementation Delay (%)", 
+            80, 200, 100, 10,
+            help="What if implementation takes 50% longer than planned?"
+        )
+        discount_variation = st.slider(
+            "Discount Rate (%)", 
+            5, 25, int(discount_rate*100), 1,
+            help="What if you use a more conservative discount rate?"
+        )
+    
+    # Calculate what-if scenario
+    whatif_benefits = total_annual_benefits * (benefits_variation / 100)
+    whatif_platform_cost = platform_cost * (cost_variation / 100)
+    whatif_services_cost = services_cost * (cost_variation / 100)
+    whatif_impl_delay = int(implementation_delay_months * (delay_variation / 100))
+    whatif_discount_rate = discount_variation / 100
+    
+    # Calculate what-if NPV
+    whatif_cash_flows = []
+    for year in range(1, evaluation_years + 1):
+        year_start_month = (year - 1) * 12 + 1
+        year_end_month = year * 12
+        
+        monthly_factors = []
+        for month in range(year_start_month, year_end_month + 1):
+            factor = calculate_benefit_realization_factor(month, whatif_impl_delay, benefits_ramp_up_months)
+            monthly_factors.append(factor)
+        
+        avg_realization_factor = np.mean(monthly_factors)
+        year_benefits = whatif_benefits * avg_realization_factor
+        year_platform_cost = whatif_platform_cost
+        year_services_cost = whatif_services_cost if year == 1 else 0
+        year_net_cash_flow = year_benefits - year_platform_cost - year_services_cost
+        
+        whatif_cash_flows.append(year_net_cash_flow)
+    
+    whatif_npv = sum([cf / ((1 + whatif_discount_rate) ** (i+1)) for i, cf in enumerate(whatif_cash_flows)])
+    whatif_total_cost = whatif_platform_cost * evaluation_years + whatif_services_cost
+    whatif_roi = (whatif_npv / whatif_total_cost * 100) if whatif_total_cost > 0 else 0
+    
+    # Display what-if results
+    st.markdown("### What-If Results vs Original")
+    
+    result_col1, result_col2, result_col3 = st.columns(3)
+    
+    original_npv = scenario_results['Expected']['npv']
+    original_roi = scenario_results['Expected']['roi'] * 100
+    
+    with result_col1:
+        npv_change = ((whatif_npv - original_npv) / original_npv * 100) if original_npv != 0 else 0
+        st.metric(
+            "NPV", 
+            f"{currency_symbol}{whatif_npv:,.0f}",
+            f"{npv_change:+.1f}%"
+        )
+    
+    with result_col2:
+        roi_change = whatif_roi - original_roi
+        st.metric(
+            "ROI", 
+            f"{whatif_roi:.1f}%",
+            f"{roi_change:+.1f}%"
+        )
+    
+    with result_col3:
+        risk_level = "🟢 Low Risk" if whatif_npv > original_npv * 0.8 else "🟡 Medium Risk" if whatif_npv > 0 else "🔴 High Risk"
+        st.metric("Risk Level", risk_level)
+    
+    # Simple scenario comparison chart
+    scenarios_comparison = {
+        'Scenario': ['Original Plan', 'What-If Scenario'],
+        'NPV': [original_npv, whatif_npv],
+        'ROI': [original_roi, whatif_roi]
+    }
+    
+    fig_whatif = px.bar(
+        scenarios_comparison, 
+        x='Scenario', 
+        y='NPV',
+        title='NPV Comparison: Original vs What-If',
+        labels={'NPV': f'NPV ({currency_symbol})'}
+    )
+    st.plotly_chart(fig_whatif, use_container_width=True)
+    
+    # Key insights
+    st.markdown("### 💡 Key Insights")
+    if whatif_npv > original_npv:
+        st.success("✅ Your what-if scenario shows better results than the original plan!")
+    elif whatif_npv > original_npv * 0.8:
+        st.warning("⚠️ Results are lower but still reasonable. Consider if these changes are likely.")
+    else:
+        st.error("❌ This scenario shows significantly lower returns. You may need to reconsider your assumptions or find ways to mitigate these risks.")
+
+with advanced_tabs[1]:
+    st.subheader("Risk Assessment Matrix")
+    st.info("⚠️ Identify and assess potential risks to your business case")
+    
+    # Define risk categories and their impact on the business case
+    risks = [
+        {
+            'risk': 'Implementation Delays',
+            'probability': 'Medium',
+            'impact': 'High',
+            'mitigation': 'Detailed project planning, experienced implementation partner',
+            'npv_impact': -0.15  # 15% reduction in NPV
+        },
+        {
+            'risk': 'Lower Than Expected Benefits',
+            'probability': 'Medium', 
+            'impact': 'High',
+            'mitigation': 'Phased rollout, early wins demonstration, change management',
+            'npv_impact': -0.25  # 25% reduction in NPV
+        },
+        {
+            'risk': 'Cost Overruns',
+            'probability': 'Low',
+            'impact': 'Medium',
+            'mitigation': 'Fixed-price contracts, scope management, vendor selection',
+            'npv_impact': -0.10  # 10% reduction in NPV
+        },
+        {
+            'risk': 'User Adoption Issues',
+            'probability': 'Medium',
+            'impact': 'High',
+            'mitigation': 'Training programs, user champions, gradual rollout',
+            'npv_impact': -0.20  # 20% reduction in NPV
+        },
+        {
+            'risk': 'Technology Integration Issues',
+            'probability': 'Low',
+            'impact': 'Medium',
+            'mitigation': 'Proof of concept, integration testing, technical due diligence',
+            'npv_impact': -0.12  # 12% reduction in NPV
+        }
+    ]
+    
+    # Create risk matrix
+    risk_df = pd.DataFrame(risks)
+    
+    # Risk probability and impact mapping
+    prob_map = {'Low': 1, 'Medium': 2, 'High': 3}
+    impact_map = {'Low': 1, 'Medium': 2, 'High': 3}
+    
+    risk_df['prob_score'] = risk_df['probability'].map(prob_map)
+    risk_df['impact_score'] = risk_df['impact'].map(impact_map)
+    risk_df['risk_score'] = risk_df['prob_score'] * risk_df['impact_score']
+    
+    # Display risk table
+    display_df = risk_df[['risk', 'probability', 'impact', 'mitigation']].copy()
+    display_df.columns = ['Risk Factor', 'Probability', 'Impact', 'Mitigation Strategy']
+    st.dataframe(display_df, hide_index=True, use_container_width=True)
+    
+    # Risk impact on NPV
+    st.subheader("Financial Impact of Risk Scenarios")
+    
+    base_npv = scenario_results['Expected']['npv']
+    
+    risk_scenarios = []
+    for _, risk in risk_df.iterrows():
+        adjusted_npv = base_npv * (1 + risk['npv_impact'])
+        risk_scenarios.append({
+            'Risk Scenario': risk['risk'],
+            'Adjusted NPV': f"{currency_symbol}{adjusted_npv:,.0f}",
+            'NPV Impact': f"{risk['npv_impact']*100:+.0f}%",
+            'Risk Level': 'High' if risk['risk_score'] >= 6 else 'Medium' if risk['risk_score'] >= 4 else 'Low'
+        })
+    
+    risk_scenarios_df = pd.DataFrame(risk_scenarios)
+    st.dataframe(risk_scenarios_df, hide_index=True, use_container_width=True)
+    
+    # Risk matrix visualization
+    fig_risk = px.scatter(risk_df, x='prob_score', y='impact_score', 
+                         size='risk_score', hover_name='risk',
+                         title='Risk Matrix: Probability vs Impact',
+                         labels={'prob_score': 'Probability', 'impact_score': 'Impact'},
+                         size_max=20)
+    
+    fig_risk.update_layout(
+        xaxis=dict(tickvals=[1, 2, 3], ticktext=['Low', 'Medium', 'High']),
+        yaxis=dict(tickvals=[1, 2, 3], ticktext=['Low', 'Medium', 'High'])
+    )
+    
+    st.plotly_chart(fig_risk, use_container_width=True)
+
+st.markdown("---")
+
+# --- FOOTER AND METADATA ---
+st.markdown("### 📋 Analysis Summary")
+
+# Configuration summary
+config_summary = f"""
+**Configuration Summary:**
+- **Solution:** {solution_name}
+- **Industry Template:** {selected_template}
+- **Evaluation Period:** {evaluation_years} years
+- **Currency:** {currency_symbol}
+- **Discount Rate:** {discount_rate*100:.1f}%
+- **Implementation Delay:** {implementation_delay_months} months
+- **Benefits Ramp-up:** {benefits_ramp_up_months} months
+
+**Key Inputs:**
+- **Alert Volume:** {alert_volume:,} alerts/year
+- **Incident Volume:** {incident_volume:,} incidents/year  
+- **Major Incidents:** {major_incident_volume:,} major incidents/year
+- **Platform Cost:** {currency_symbol}{platform_cost:,}/year
+- **Services Cost:** {currency_symbol}{services_cost:,} (one-time)
+
+**Results Summary:**
+- **Expected NPV:** {currency_symbol}{scenario_results['Expected']['npv']:,.0f}
+- **Expected ROI:** {scenario_results['Expected']['roi']*100:.1f}%
+- **Payback Period:** {scenario_results['Expected']['payback_months']}
+- **Annual Benefits:** {currency_symbol}{total_annual_benefits:,.0f}
+"""
+
+with st.expander("📊 View Complete Configuration Summary"):
+    st.markdown(config_summary)
+
+# Version and timestamp
+st.markdown("---")
+col1, col2 = st.columns(2)
+with col1:
+    st.caption(f"**Business Value Assessment Tool v1.7** - Enhanced with NPV explanations, validation, and advanced analytics")
+with col2:
+    st.caption(f"**Analysis generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+# Pro tip
+st.info("💡 **Pro Tip:** Save your configuration using the Export function in the sidebar to preserve your analysis or share with stakeholders.")
