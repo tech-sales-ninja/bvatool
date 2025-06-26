@@ -1,4 +1,4 @@
-# v1.7 - June 2025 - Enhanced with NPV explanations, validation, and improved visualizations
+# v1.8 - June 2025 - Enhanced with Billing Start Month parameter and improved cash flow calculations
 
 import streamlit as st
 import numpy as np
@@ -70,6 +70,16 @@ def validate_inputs():
         warnings.append("Alert volume exists but triage time is zero")
     if incident_volume > 0 and avg_incident_triage_time == 0:
         warnings.append("Incident volume exists but triage time is zero")
+    
+    # Add billing start month validation
+    if billing_start_month < implementation_delay_months:
+        warnings.append(f"You'll pay platform costs from month {billing_start_month} but get benefits from month {implementation_delay_months + 1}")
+    
+    if billing_start_month > evaluation_years * 12:
+        errors.append(f"Billing start month ({billing_start_month}) is beyond evaluation period ({evaluation_years * 12} months)")
+    
+    if billing_start_month > implementation_delay_months + benefits_ramp_up_months:
+        warnings.append(f"Billing starts (month {billing_start_month}) after full benefits realization (month {implementation_delay_months + benefits_ramp_up_months}) - unusual scenario")
     
     return warnings, errors
 
@@ -229,7 +239,7 @@ def get_all_input_values():
         'solution_name', 'industry_template', 'currency', 
         
         # Implementation Timeline
-        'implementation_delay', 'benefits_ramp_up',
+        'implementation_delay', 'benefits_ramp_up', 'billing_start_month',
         
         # Working Hours Configuration
         'hours_per_day', 'days_per_week', 'weeks_per_year', 'holiday_sick_days',
@@ -274,6 +284,7 @@ def get_default_value(key):
         'currency': '$',
         'implementation_delay': 6,
         'benefits_ramp_up': 3,
+        'billing_start_month': 1,
         'hours_per_day': 8.0,
         'days_per_week': 5,
         'weeks_per_year': 52,
@@ -323,6 +334,7 @@ def export_to_csv(input_values):
         'currency': 'Currency Symbol',
         'implementation_delay': 'Implementation Delay (months)',
         'benefits_ramp_up': 'Benefits Ramp-up Period (months)',
+        'billing_start_month': 'Billing Start Month',
         'hours_per_day': 'Working Hours per Day',
         'days_per_week': 'Working Days per Week',
         'weeks_per_year': 'Working Weeks per Year',
@@ -402,7 +414,7 @@ def export_to_json(input_values):
     export_data = {
         'metadata': {
             'export_date': datetime.now().isoformat(),
-            'version': '1.7',
+            'version': '1.8',
             'tool': 'BVA Business Value Assessment'
         },
         'configuration': input_values
@@ -517,6 +529,13 @@ benefits_ramp_up_months = st.sidebar.slider(
     help="Time to reach full benefits after go-live (gradual adoption)",
     key="benefits_ramp_up"
 )
+billing_start_month = st.sidebar.slider(
+    "Billing Start Month", 
+    1, 24, 1,
+    help="Month when platform subscription billing begins (when customer starts paying monthly fees)",
+    key="billing_start_month"
+)
+st.sidebar.caption("💡 Platform costs start from billing month. Benefits start when implementation completes (independent timelines)")
 
 # --- Industry Benchmark Templates ---
 industry_templates = {
@@ -889,11 +908,15 @@ def calculate_benefit_realization_factor(month, implementation_delay_months, ram
     else:
         return 1.0  # Full benefits realized
 
-def calculate_scenario_results(benefits_multiplier, implementation_delay_multiplier, scenario_name):
+def calculate_platform_cost_factor(month, billing_start_month):
+    """Calculate whether platform costs are incurred in a given month"""
+    return 1.0 if month >= billing_start_month else 0.0
+
+def calculate_scenario_results(benefits_multiplier, implementation_delay_multiplier, scenario_name, billing_start_month):
     """Calculate NPV, ROI, and payback for a given scenario"""
     # Adjust benefits and timeline
     scenario_benefits = total_annual_benefits * benefits_multiplier
-    scenario_impl_delay = max(0, int(implementation_delay_months * implementation_delay_multiplier)) # Ensure not negative
+    scenario_impl_delay = max(0, int(implementation_delay_months * implementation_delay_multiplier))
     scenario_ramp_up = benefits_ramp_up_months
     
     # Calculate cash flows
@@ -902,14 +925,21 @@ def calculate_scenario_results(benefits_multiplier, implementation_delay_multipl
         year_start_month = (year - 1) * 12 + 1
         year_end_month = year * 12
         
-        monthly_factors = []
-        for month in range(year_start_month, year_end_month + 1):
-            factor = calculate_benefit_realization_factor(month, scenario_impl_delay, scenario_ramp_up)
-            monthly_factors.append(factor)
+        # Calculate monthly factors and average for the year
+        monthly_benefit_factors = []
+        monthly_cost_factors = []
         
-        avg_realization_factor = np.mean(monthly_factors)
-        year_benefits = scenario_benefits * avg_realization_factor
-        year_platform_cost = platform_cost
+        for month in range(year_start_month, year_end_month + 1):
+            benefit_factor = calculate_benefit_realization_factor(month, scenario_impl_delay, scenario_ramp_up)
+            cost_factor = calculate_platform_cost_factor(month, billing_start_month)
+            monthly_benefit_factors.append(benefit_factor)
+            monthly_cost_factors.append(cost_factor)
+        
+        avg_benefit_realization_factor = np.mean(monthly_benefit_factors)
+        avg_cost_factor = np.mean(monthly_cost_factors)
+        
+        year_benefits = scenario_benefits * avg_benefit_realization_factor
+        year_platform_cost = platform_cost * avg_cost_factor  # Only pay for months when billing is active
         year_services_cost = services_cost if year == 1 else 0
         year_net_cash_flow = year_benefits - year_platform_cost - year_services_cost
         
@@ -919,7 +949,8 @@ def calculate_scenario_results(benefits_multiplier, implementation_delay_multipl
             'platform_cost': year_platform_cost,
             'services_cost': year_services_cost,
             'net_cash_flow': year_net_cash_flow,
-            'realization_factor': avg_realization_factor
+            'benefit_realization_factor': avg_benefit_realization_factor,
+            'cost_factor': avg_cost_factor
         })
     
     # Calculate metrics
@@ -976,7 +1007,8 @@ for scenario_name, params in scenarios.items():
     scenario_results[scenario_name] = calculate_scenario_results(
         params["benefits_multiplier"], 
         params["implementation_delay_multiplier"],
-        scenario_name
+        scenario_name,
+        billing_start_month
     )
     scenario_results[scenario_name].update({
         "color": params["color"],
@@ -1009,7 +1041,7 @@ if effective_avg_fte_salary > 0:
 # 3. Payback Periods in Months (More granular calculation)
 
 def calculate_payback_months(annual_benefits, annual_platform_cost, one_time_services_cost, 
-                             implementation_delay_months, benefits_ramp_up_months, max_months_eval=60):
+                             implementation_delay_months, benefits_ramp_up_months, billing_start_month, max_months_eval=60):
     """Calculates the payback period in months."""
     
     cumulative_cash_flow = 0
@@ -1019,10 +1051,13 @@ def calculate_payback_months(annual_benefits, annual_platform_cost, one_time_ser
     cumulative_cash_flow -= one_time_services_cost
 
     for month in range(1, max_months_eval + 1):
-        factor = calculate_benefit_realization_factor(month, implementation_delay_months, benefits_ramp_up_months)
+        # Benefits start based on implementation timeline
+        benefit_factor = calculate_benefit_realization_factor(month, implementation_delay_months, benefits_ramp_up_months)
+        # Platform costs start based on billing timeline
+        cost_factor = calculate_platform_cost_factor(month, billing_start_month)
         
-        monthly_benefit = (annual_benefits / 12) * factor
-        monthly_platform_cost = annual_platform_cost / 12
+        monthly_benefit = (annual_benefits / 12) * benefit_factor
+        monthly_platform_cost = (annual_platform_cost / 12) * cost_factor
         
         monthly_net_cash_flow = monthly_benefit - monthly_platform_cost
         
@@ -1047,34 +1082,41 @@ for scenario_name, params in scenarios.items():
         one_time_services_cost=services_cost,
         implementation_delay_months=scenario_impl_delay_for_payback,
         benefits_ramp_up_months=benefits_ramp_up_months,
+        billing_start_month=billing_start_month,
         max_months_eval=evaluation_years * 12
     )
 
 # --- END OF NEW FUNCTIONALITY ADDITIONS ---
 
 
-def create_implementation_timeline_chart(implementation_delay_months, ramp_up_months, evaluation_years, currency_symbol, total_annual_benefits):
-    """Create a visual timeline showing benefit realization over time"""
+def create_implementation_timeline_chart(implementation_delay_months, ramp_up_months, billing_start_month, evaluation_years, currency_symbol, total_annual_benefits):
+    """Create a visual timeline showing benefit realization and cost timeline over time"""
     
     total_months = evaluation_years * 12
     months = list(range(1, total_months + 1))
-    realization_factors = []
+    benefit_realization_factors = []
     monthly_benefits = []
+    monthly_costs = []
     
     for month in months:
-        factor = calculate_benefit_realization_factor(month, implementation_delay_months, ramp_up_months)
-        realization_factors.append(factor * 100)
-        monthly_benefits.append(total_annual_benefits * factor / 12)
+        benefit_factor = calculate_benefit_realization_factor(month, implementation_delay_months, ramp_up_months)
+        cost_factor = calculate_platform_cost_factor(month, billing_start_month)
+        
+        benefit_realization_factors.append(benefit_factor * 100)
+        monthly_benefits.append(total_annual_benefits * benefit_factor / 12)
+        monthly_costs.append(platform_cost * cost_factor / 12)
     
     fig = go.Figure()
     
+    # Benefits line
     fig.add_trace(go.Scatter(
-        x=months, y=realization_factors, mode='lines+markers', name='Benefit Realization %',
+        x=months, y=benefit_realization_factors, mode='lines+markers', name='Benefit Realization %',
         line=dict(color='#2E86AB', width=3), marker=dict(size=4),
         hovertemplate='<b>Month %{x}</b><br>Benefit Realization: %{y:.1f}%<br><extra></extra>',
         yaxis='y'
     ))
     
+    # Benefits area
     fig.add_trace(go.Scatter(
         x=months, y=[b/1000 for b in monthly_benefits], mode='lines', name=f'Monthly Benefits ({currency_symbol}K)',
         line=dict(color='#A23B72', width=2), fill='tonexty', fillcolor='rgba(162, 59, 114, 0.2)',
@@ -1082,6 +1124,21 @@ def create_implementation_timeline_chart(implementation_delay_months, ramp_up_mo
         customdata=monthly_benefits, yaxis='y2'
     ))
     
+    # Platform costs line
+    fig.add_trace(go.Scatter(
+        x=months, y=[c/1000 for c in monthly_costs], mode='lines', name=f'Monthly Platform Costs ({currency_symbol}K)',
+        line=dict(color='#FF6B6B', width=2, dash='dash'),
+        hovertemplate='<b>Month %{x}</b><br>' + f'Monthly Platform Cost: {currency_symbol}' + '%{customdata:,.0f}<br><extra></extra>',
+        customdata=monthly_costs, yaxis='y2'
+    ))
+    
+    # Add billing start line
+    if billing_start_month > 0:
+        fig.add_vline(x=billing_start_month, line_dash="dot", line_color="blue", line_width=2,
+                      annotation_text="Billing Starts", annotation_position="top",
+                      annotation=dict(bgcolor="white", bordercolor="blue"))
+    
+    # Add implementation milestone lines
     if implementation_delay_months > 0:
         fig.add_vline(x=implementation_delay_months, line_dash="dash", line_color="red", line_width=2,
                       annotation_text="Go-Live", annotation_position="top",
@@ -1092,27 +1149,36 @@ def create_implementation_timeline_chart(implementation_delay_months, ramp_up_mo
                       annotation_text="Full Benefits", annotation_position="top",
                       annotation=dict(bgcolor="white", bordercolor="green"))
     
-    if implementation_delay_months > 0:
-        fig.add_vrect(x0=0, x1=implementation_delay_months, fillcolor="red", opacity=0.1, layer="below", line_width=0,
-                      annotation_text="Implementation Phase", annotation_position="top left",
-                      annotation=dict(textangle=0, font=dict(size=10, color="red")))
+    # Add phase highlighting with corrected logic
+    if billing_start_month > 1:
+        fig.add_vrect(x0=0, x1=billing_start_month, fillcolor="gray", opacity=0.1, layer="below", line_width=0,
+                      annotation_text="Pre-Billing Phase", annotation_position="top left",
+                      annotation=dict(textangle=0, font=dict(size=10, color="gray")))
     
-    if ramp_up_months > 0:
+    # Show period where costs are incurred but no benefits yet
+    if billing_start_month < implementation_delay_months:
+        fig.add_vrect(x0=billing_start_month, x1=implementation_delay_months, fillcolor="orange", opacity=0.2, layer="below", line_width=0,
+                      annotation_text="Paying but No Benefits", annotation_position="top left",
+                      annotation=dict(textangle=0, font=dict(size=10, color="orange")))
+    
+    # Implementation phase (when benefits start)
+    if implementation_delay_months > 0:
         fig.add_vrect(x0=implementation_delay_months, x1=implementation_delay_months + ramp_up_months,
-                      fillcolor="orange", opacity=0.1, layer="below", line_width=0,
+                      fillcolor="yellow", opacity=0.1, layer="below", line_width=0,
                       annotation_text="Ramp-up Phase", annotation_position="top left",
                       annotation=dict(textangle=0, font=dict(size=10, color="orange")))
     
+    # Full benefits phase
     fig.add_vrect(x0=implementation_delay_months + ramp_up_months, x1=total_months,
                   fillcolor="green", opacity=0.1, layer="below", line_width=0,
                   annotation_text="Full Benefits Phase", annotation_position="top left",
                   annotation=dict(textangle=0, font=dict(size=10, color="green")))
     
     fig.update_layout(
-        title={'text': 'Implementation Timeline & Benefit Realization', 'x': 0.5, 'xanchor': 'center', 'font': {'size': 18}},
+        title={'text': 'Implementation Timeline: Benefits vs Platform Costs', 'x': 0.5, 'xanchor': 'center', 'font': {'size': 18}},
         xaxis_title="Months from Project Start",
         yaxis=dict(title="Benefit Realization (%)", side="left", range=[0, 105], color='#2E86AB'),
-        yaxis2=dict(title=f"Monthly Benefits ({currency_symbol}K)", side="right", overlaying="y", color='#A23B72'),
+        yaxis2=dict(title=f"Monthly Value ({currency_symbol}K)", side="right", overlaying="y", color='#A23B72'),
         height=500, hovermode='x unified',
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         margin=dict(t=80), plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)'
@@ -1149,6 +1215,7 @@ def create_executive_summary_data(scenario_results, currency_symbol):
         'implementation': {
             'delay_months': implementation_delay_months,
             'ramp_up_months': benefits_ramp_up_months,
+            'billing_start_month': billing_start_month,
             'full_benefits_month': implementation_delay_months + benefits_ramp_up_months,
             'evaluation_years': evaluation_years
         },
@@ -1326,7 +1393,7 @@ def generate_executive_report_pdf(summary_data, scenario_results, solution_name,
     story.append(exec_table)
     story.append(Spacer(1, 0.2*inch))
     
-    # Add overall cost reallocation and FTE equivalency to Executive Summary (optional, can be its own section)
+    # Add overall cost reallocation and FTE equivalency to Executive Summary
     story.append(Paragraph("Operational Savings for Reallocation:", subheading_style))
     story.append(Paragraph(
         f"Annually, **{summary_data['investment_summary']['currency']}{summary_data['reallocation_and_fte']['total_cost_savings_for_reallocation']:,.0f}** can be reallocated to higher-margin projects. "
@@ -1353,6 +1420,7 @@ def generate_executive_report_pdf(summary_data, scenario_results, solution_name,
     • Total Annual Cost Savings from A&I Management: {summary_data['investment_summary']['currency']}{summary_data['reallocation_and_fte']['total_cost_savings_for_reallocation']:,.0f}<br/>
     • Equivalent FTEs from Savings: {summary_data['reallocation_and_fte']['equivalent_ftes_from_savings']:,.1f} FTEs<br/><br/>
     <b>Implementation Timeline:</b><br/> 
+    • Billing Starts: Month {summary_data['implementation']['billing_start_month']}<br/>
     • Implementation Phase: {summary_data['implementation']['delay_months']} months<br/> 
     • Ramp-up to Full Benefits: {summary_data['implementation']['ramp_up_months']} months<br/> 
     • Full ROI Realization: Month {summary_data['implementation']['full_benefits_month']}<br/><br/> 
@@ -1399,6 +1467,9 @@ def generate_executive_report_pdf(summary_data, scenario_results, solution_name,
     # Key Milestones 
     story.append(Paragraph("Key Success Milestones", subheading_style)) 
     milestones_text = f""" 
+    <b>Month {billing_start_month}: Billing Begins</b><br/>
+    • Revenue recognition starts<br/>
+    • Project funding model active<br/><br/>
     <b>Month {implementation_delay_months}: Go-Live Milestone</b><br/> 
     • Solution deployed and operational<br/> 
     • Initial benefits begin to materialize<br/> 
@@ -1461,6 +1532,45 @@ with col3:
 
 st.markdown("---")
 
+# --- Billing vs Implementation Timeline Analysis ---
+st.subheader("🕐 Billing vs Implementation Timeline Impact")
+
+billing_vs_impl_info = f"""
+**Current Timeline Configuration:**
+- **Platform Billing Starts:** Month {billing_start_month}
+- **Implementation Completes:** Month {implementation_delay_months}
+- **Full Benefits Realized:** Month {implementation_delay_months + benefits_ramp_up_months}
+
+**Financial Impact Analysis:**
+"""
+
+if billing_start_month < implementation_delay_months:
+    months_paying_no_benefits = implementation_delay_months - billing_start_month
+    cost_during_gap = (platform_cost / 12) * months_paying_no_benefits
+    billing_vs_impl_info += f"""
+🟡 **Gap Period**: You'll pay platform costs for **{months_paying_no_benefits} months** before getting benefits
+- Monthly platform cost: {currency_symbol}{platform_cost/12:,.0f}
+- Total cost during gap: {currency_symbol}{cost_during_gap:,.0f}
+- This reduces early cash flow but is common during implementation
+"""
+elif billing_start_month == implementation_delay_months:
+    billing_vs_impl_info += f"""
+🟢 **Synchronized**: Billing and implementation complete in the same month
+- Optimal timing - you start paying when benefits begin
+- No gap period of costs without benefits
+"""
+else:
+    months_benefits_no_billing = billing_start_month - implementation_delay_months
+    billing_vs_impl_info += f"""
+🟢 **Grace Period**: You get **{months_benefits_no_billing} months** of benefits before billing starts
+- Unusual but favorable scenario
+- Improves early cash flow and payback period
+"""
+
+st.info(billing_vs_impl_info)
+
+st.markdown("---")
+
 # --- Value Reallocation & FTE Equivalency (Overall Project) ---
 st.subheader("🚀 Value Reallocation & FTE Equivalency (Overall Project)")
 st.write(f"**Cost Available for Higher Margin Projects (Annually):** {currency_symbol}{total_operational_savings_from_time_saved:,.0f}")
@@ -1489,10 +1599,11 @@ with st.expander("Click to understand the NPV calculation methodology", expanded
         st.markdown("""
         **📊 Cash Flow Components:**
         - **Benefits**: Alert/incident savings, efficiency gains, tool consolidation
-        - **Platform Costs**: Annual subscription fees
+        - **Platform Costs**: Monthly subscription fees (start from billing month)
         - **Services Costs**: One-time implementation costs (Year 1 only)
         - **Implementation Delay**: Benefits start after go-live
         - **Ramp-up Period**: Gradual benefit realization
+        - **Billing Timeline**: Platform costs independent of implementation
         """)
     
     with col2:
@@ -1500,6 +1611,7 @@ with st.expander("Click to understand the NPV calculation methodology", expanded
         **⚙️ Your Current Settings:**
         - **Discount Rate**: {discount_rate*100:.1f}%
         - **Evaluation Period**: {evaluation_years} years
+        - **Platform Billing Start**: Month {billing_start_month}
         - **Implementation Delay**: {implementation_delay_months} months
         - **Ramp-up Period**: {benefits_ramp_up_months} months
         """)
@@ -1520,7 +1632,8 @@ with st.expander("Click to understand the NPV calculation methodology", expanded
             'Net Cash Flow': f"{currency_symbol}{cf['net_cash_flow']:,.0f}",
             'Discount Factor': f"1/(1+{discount_rate:.1%})^{cf['year']} = {1/((1+discount_rate)**cf['year']):.3f}",
             'Present Value': f"{currency_symbol}{present_value:,.0f}",
-            'Benefit Realization': f"{cf['realization_factor']*100:.1f}%"
+            'Benefit Realization': f"{cf['benefit_realization_factor']*100:.1f}%",
+            'Cost Factor': f"{cf['cost_factor']*100:.1f}%"
         })
     
     npv_df = pd.DataFrame(npv_breakdown_data)
@@ -1534,7 +1647,9 @@ with st.expander("Click to understand the NPV calculation methodology", expanded
     - **Positive NPV** indicates the investment creates value
     - **Higher discount rates** reduce NPV (more conservative)
     - **Implementation delays** reduce early cash flows and NPV
+    - **Billing delays** affect when costs start (earlier billing = higher costs sooner)
     - **Ramp-up periods** reflect realistic adoption curves
+    - **Cost Factor** shows percentage of year when platform costs are incurred
     """)
 
 # Add sensitivity analysis for NPV
@@ -1623,11 +1738,11 @@ for i, (scenario_name, params) in enumerate(scenarios.items()):
         for col in ['benefits', 'platform_cost', 'services_cost', 'net_cash_flow', 'net_cash_flow_cumulative']:
             cash_flow_display_df[col] = cash_flow_display_df[col].apply(lambda x: f"{currency_symbol}{x:,.0f}")
         
-        cash_flow_display_df['realization_factor'] = cash_flow_display_df['realization_factor'].apply(lambda x: f"{x*100:.1f}%")
+        cash_flow_display_df['benefit_realization_factor'] = cash_flow_display_df['benefit_realization_factor'].apply(lambda x: f"{x*100:.1f}%")
 
         st.dataframe(cash_flow_display_df[[
             'year', 'benefits', 'platform_cost', 'services_cost', 
-            'net_cash_flow', 'net_cash_flow_cumulative', 'realization_factor'
+            'net_cash_flow', 'net_cash_flow_cumulative', 'benefit_realization_factor'
         ]].rename(columns={
             'year': 'Year',
             'benefits': 'Benefits',
@@ -1635,7 +1750,7 @@ for i, (scenario_name, params) in enumerate(scenarios.items()):
             'services_cost': 'Services Cost',
             'net_cash_flow': 'Net Cash Flow',
             'net_cash_flow_cumulative': 'Cumulative Net Cash Flow',
-            'realization_factor': 'Benefit Realization Factor'
+            'benefit_realization_factor': 'Benefit Realization Factor'
         }), hide_index=True)
 
 st.markdown("---")
@@ -1696,9 +1811,11 @@ with viz_tabs[3]:
     
     for month in months_range:
         if month > 0:
-            factor = calculate_benefit_realization_factor(month, implementation_delay_months, benefits_ramp_up_months)
-            monthly_benefit = (total_annual_benefits / 12) * factor
-            monthly_cost = platform_cost / 12
+            benefit_factor = calculate_benefit_realization_factor(month, implementation_delay_months, benefits_ramp_up_months)
+            cost_factor = calculate_platform_cost_factor(month, billing_start_month)
+            
+            monthly_benefit = (total_annual_benefits / 12) * benefit_factor
+            monthly_cost = (platform_cost / 12) * cost_factor
             
             cum_benefit += monthly_benefit
             cum_cost += monthly_cost
@@ -1741,7 +1858,7 @@ st.markdown("---")
 st.subheader("Cumulative Net Cash Flow Over Time (Expected Scenario)")
 
 def get_monthly_cumulative_cash_flow(annual_benefits, annual_platform_cost, one_time_services_cost, 
-                                     implementation_delay_months, benefits_ramp_up_months, evaluation_years):
+                                     implementation_delay_months, benefits_ramp_up_months, billing_start_month, evaluation_years):
     total_months = evaluation_years * 12
     monthly_data = []
     cumulative_cash_flow = 0
@@ -1751,10 +1868,13 @@ def get_monthly_cumulative_cash_flow(annual_benefits, annual_platform_cost, one_
     cumulative_cash_flow = -one_time_services_cost
 
     for month in range(1, total_months + 1):
-        factor = calculate_benefit_realization_factor(month, implementation_delay_months, benefits_ramp_up_months)
+        # Benefits based on implementation timeline
+        benefit_factor = calculate_benefit_realization_factor(month, implementation_delay_months, benefits_ramp_up_months)
+        # Platform costs based on billing timeline
+        cost_factor = calculate_platform_cost_factor(month, billing_start_month)
         
-        monthly_benefit = (annual_benefits / 12) * factor
-        monthly_platform_cost = annual_platform_cost / 12
+        monthly_benefit = (annual_benefits / 12) * benefit_factor
+        monthly_platform_cost = (annual_platform_cost / 12) * cost_factor
         
         monthly_net_cash_flow = monthly_benefit - monthly_platform_cost
         
@@ -1763,7 +1883,9 @@ def get_monthly_cumulative_cash_flow(annual_benefits, annual_platform_cost, one_
         monthly_data.append({
             'month': month,
             'net_cash_flow': monthly_net_cash_flow,
-            'cumulative_net_cash_flow': cumulative_cash_flow
+            'cumulative_net_cash_flow': cumulative_cash_flow,
+            'monthly_benefit': monthly_benefit,
+            'monthly_platform_cost': monthly_platform_cost
         })
     return pd.DataFrame(monthly_data)
 
@@ -1773,6 +1895,7 @@ expected_monthly_cf_df = get_monthly_cumulative_cash_flow(
     services_cost,
     implementation_delay_months,
     benefits_ramp_up_months,
+    billing_start_month,
     evaluation_years
 )
 
@@ -1791,6 +1914,7 @@ st.subheader("Implementation Timeline & Benefit Realization")
 timeline_fig = create_implementation_timeline_chart(
     implementation_delay_months, 
     benefits_ramp_up_months, 
+    billing_start_month,
     evaluation_years, 
     currency_symbol, 
     total_annual_benefits
@@ -2090,6 +2214,13 @@ with advanced_tabs[1]:
             'impact': 'Medium',
             'mitigation': 'Proof of concept, integration testing, technical due diligence',
             'npv_impact': -0.12  # 12% reduction in NPV
+        },
+        {
+            'risk': 'Billing Start Delays',
+            'probability': 'Low',
+            'impact': 'Medium',
+            'mitigation': 'Early revenue model alignment, clear billing criteria',
+            'npv_impact': -0.08  # 8% reduction in NPV
         }
     ]
     
@@ -2154,8 +2285,15 @@ config_summary = f"""
 - **Evaluation Period:** {evaluation_years} years
 - **Currency:** {currency_symbol}
 - **Discount Rate:** {discount_rate*100:.1f}%
+- **Billing Start Month:** {billing_start_month}
 - **Implementation Delay:** {implementation_delay_months} months
 - **Benefits Ramp-up:** {benefits_ramp_up_months} months
+
+**Timeline Summary:**
+- **Platform Billing Starts:** Month {billing_start_month}
+- **Implementation Completes:** Month {implementation_delay_months}
+- **Full Benefits Realized:** Month {implementation_delay_months + benefits_ramp_up_months}
+- **Financial Impact:** {"Gap period - paying before benefits" if billing_start_month < implementation_delay_months else "Synchronized timing" if billing_start_month == implementation_delay_months else "Grace period - benefits before billing"}
 
 **Key Inputs:**
 - **Alert Volume:** {alert_volume:,} alerts/year
@@ -2178,7 +2316,7 @@ with st.expander("📊 View Complete Configuration Summary"):
 st.markdown("---")
 col1, col2 = st.columns(2)
 with col1:
-    st.caption(f"**Business Value Assessment Tool v1.7** - Enhanced with NPV explanations, validation, and advanced analytics")
+    st.caption(f"**Business Value Assessment Tool v1.8** - Enhanced with Billing Start Month parameter and improved cash flow calculations")
 with col2:
     st.caption(f"**Analysis generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
