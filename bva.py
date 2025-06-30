@@ -244,9 +244,20 @@ def create_before_after_comparison():
     mttr_improvement_pct = st.session_state.get('mttr_improvement_pct', 0)
     currency_symbol = st.session_state.get('currency', '$')
     
-    # Calculate remaining values (these would need to be properly calculated)
+    # Get calculated savings from session state
+    alert_reduction_savings = st.session_state.get('alert_reduction_savings', 0)
+    alert_triage_savings = st.session_state.get('alert_triage_savings', 0)
+    incident_reduction_savings = st.session_state.get('incident_reduction_savings', 0)
+    incident_triage_savings = st.session_state.get('incident_triage_savings', 0)
+    major_incident_savings = st.session_state.get('major_incident_savings', 0)
+    
+    # Calculate remaining values
     remaining_alerts = alert_volume * (1 - st.session_state.get('alert_reduction_pct', 0) / 100)
     remaining_incidents = incident_volume * (1 - st.session_state.get('incident_reduction_pct', 0) / 100)
+    
+    # Calculate total savings for each category
+    total_alert_savings = alert_reduction_savings + alert_triage_savings
+    total_incident_savings = incident_reduction_savings + incident_triage_savings
     
     comparison_data = {
         'Metric': [
@@ -264,14 +275,14 @@ def create_before_after_comparison():
         'Future State': [
             f"{remaining_alerts:,.0f}",
             f"{remaining_incidents:,.0f}",
-            f"{major_incident_volume:,}",
+            f"{major_incident_volume:,}",  # Major incidents don't reduce, just MTTR improves
             f"{avg_mttr_hours * (1 - mttr_improvement_pct/100):.1f}",
         ],
         'Annual Savings': [
-            f"TBD",
-            f"TBD",
-            "Prevention focused",
-            f"TBD",
+            f"{currency_symbol}{total_alert_savings:,.0f}",
+            f"{currency_symbol}{total_incident_savings:,.0f}",
+            f"{currency_symbol}{major_incident_savings:,.0f}",
+            f"{currency_symbol}{major_incident_savings:,.0f}",  # MTTR savings shown here too
         ]
     }
     
@@ -2209,22 +2220,34 @@ with calc_tabs[4]:
     st.subheader("🔄 Interactive ROI Calculator")
     st.info("Adjust the sliders below to see how changes affect your ROI in real-time.")
     
+    # Sync interactive slider values with main configuration values
+    # This ensures imported configurations work properly
+    if 'sync_interactive_sliders' not in st.session_state:
+        st.session_state['sync_interactive_sliders'] = True
+    
+    # Get current values from main configuration (respects imported values)
+    current_alert_reduction = st.session_state.get('alert_reduction_pct', 0)
+    current_incident_reduction = st.session_state.get('incident_reduction_pct', 0)
+    current_mttr_improvement = st.session_state.get('mttr_improvement_pct', 0)
+    current_implementation_delay = st.session_state.get('implementation_delay', 6)
+    current_discount_rate = st.session_state.get('discount_rate', 10)
+    
     # Interactive sliders for key variables
     col1, col2, col3 = st.columns(3)
     
     with col1:
         interactive_alert_reduction = st.slider(
-            "Alert Reduction %", 0, 100, alert_reduction_pct,
+            "Alert Reduction %", 0, 100, current_alert_reduction,
             key="interactive_alert_reduction"
         )
         interactive_incident_reduction = st.slider(
-            "Incident Reduction %", 0, 100, incident_reduction_pct,
+            "Incident Reduction %", 0, 100, current_incident_reduction,
             key="interactive_incident_reduction"
         )
     
     with col2:
         interactive_mttr_improvement = st.slider(
-            "MTTR Improvement %", 0, 100, mttr_improvement_pct,
+            "MTTR Improvement %", 0, 100, current_mttr_improvement,
             key="interactive_mttr_improvement"
         )
         interactive_platform_cost_mult = st.slider(
@@ -2234,47 +2257,111 @@ with calc_tabs[4]:
     
     with col3:
         interactive_implementation_delay = st.slider(
-            "Implementation Delay (months)", 1, 24, implementation_delay_months,
+            "Implementation Delay (months)", 1, 24, current_implementation_delay,
             key="interactive_implementation_delay"
         )
         interactive_discount_rate = st.slider(
-            "Discount Rate %", 5, 25, int(discount_rate*100),
+            "Discount Rate %", 5, 25, current_discount_rate,
             key="interactive_discount_rate"
         ) / 100
     
-    # Calculate interactive results
-    interactive_alert_savings = (alert_volume * interactive_alert_reduction / 100) * cost_per_alert
-    interactive_incident_savings = (incident_volume * interactive_incident_reduction / 100) * cost_per_incident
+    # Add a reset button to sync sliders with main configuration
+    if st.button("🔄 Reset Sliders to Current Configuration", key="reset_interactive_sliders"):
+        # Clear the interactive slider keys from session state so they reinitialize with current values
+        keys_to_clear = [
+            'interactive_alert_reduction', 'interactive_incident_reduction', 
+            'interactive_mttr_improvement', 'interactive_platform_cost',
+            'interactive_implementation_delay', 'interactive_discount_rate'
+        ]
+        for key in keys_to_clear:
+            if key in st.session_state:
+                del st.session_state[key]
+        st.rerun()
+    
+    # Calculate interactive results (CORRECTED to match original calculation method)
+    # Alert savings - both reduction and triage efficiency
+    interactive_avoided_alerts = alert_volume * (interactive_alert_reduction / 100)
+    interactive_remaining_alerts = alert_volume - interactive_avoided_alerts
+    interactive_alert_reduction_savings = interactive_avoided_alerts * cost_per_alert
+    interactive_remaining_alert_handling_cost = interactive_remaining_alerts * cost_per_alert
+    interactive_alert_triage_savings = interactive_remaining_alert_handling_cost * (alert_triage_time_saved_pct / 100)
+    
+    # Incident savings - both reduction and triage efficiency  
+    interactive_avoided_incidents = incident_volume * (interactive_incident_reduction / 100)
+    interactive_remaining_incidents = incident_volume - interactive_avoided_incidents
+    interactive_incident_reduction_savings = interactive_avoided_incidents * cost_per_incident
+    interactive_remaining_incident_handling_cost = interactive_remaining_incidents * cost_per_incident
+    interactive_incident_triage_savings = interactive_remaining_incident_handling_cost * (incident_triage_time_savings_pct / 100)
+    
+    # MTTR savings
     interactive_mttr_savings = major_incident_volume * (interactive_mttr_improvement / 100) * avg_mttr_hours * avg_major_incident_cost
     
-    interactive_total_benefits = (interactive_alert_savings + interactive_incident_savings + 
+    # Total interactive benefits (now matches original calculation method)
+    interactive_total_benefits = (interactive_alert_reduction_savings + interactive_alert_triage_savings + 
+                                interactive_incident_reduction_savings + interactive_incident_triage_savings + 
                                 interactive_mttr_savings + tool_savings + people_cost_per_year + 
                                 fte_avoidance + sla_penalty_avoidance + revenue_growth + 
                                 capex_savings + opex_savings)
     
-    interactive_platform_cost_total = platform_cost * interactive_platform_cost_mult * evaluation_years
-    interactive_total_costs = interactive_platform_cost_total + services_cost
-    
-    # Calculate interactive NPV (simplified)
+    # Calculate interactive NPV using the SAME method as original (accounts for billing timing)
     interactive_cash_flows = []
     for year in range(1, evaluation_years + 1):
-        year_benefits = interactive_total_benefits
-        year_platform_cost = platform_cost * interactive_platform_cost_mult
+        year_start_month = (year - 1) * 12 + 1
+        year_end_month = year * 12
+        
+        # Calculate monthly factors and average for the year (same as original)
+        monthly_benefit_factors = []
+        monthly_cost_factors = []
+        
+        for month in range(year_start_month, year_end_month + 1):
+            benefit_factor = calculate_benefit_realization_factor(month, interactive_implementation_delay, benefits_ramp_up_months)
+            cost_factor = calculate_platform_cost_factor(month, billing_start_month)
+            monthly_benefit_factors.append(benefit_factor)
+            monthly_cost_factors.append(cost_factor)
+        
+        avg_benefit_realization_factor = np.mean(monthly_benefit_factors)
+        avg_cost_factor = np.mean(monthly_cost_factors)
+        
+        year_benefits = interactive_total_benefits * avg_benefit_realization_factor
+        year_platform_cost = platform_cost * interactive_platform_cost_mult * avg_cost_factor
         year_services_cost = services_cost if year == 1 else 0
         year_net_cash_flow = year_benefits - year_platform_cost - year_services_cost
-        interactive_cash_flows.append(year_net_cash_flow)
+        
+        interactive_cash_flows.append({
+            'year': year,
+            'benefits': year_benefits,
+            'platform_cost': year_platform_cost,
+            'services_cost': year_services_cost,
+            'net_cash_flow': year_net_cash_flow
+        })
     
-    interactive_npv = sum([cf / ((1 + interactive_discount_rate) ** (i+1)) for i, cf in enumerate(interactive_cash_flows)])
+    # Calculate NPV and total costs using the same method as original
+    interactive_npv = sum([cf['net_cash_flow'] / ((1 + interactive_discount_rate) ** cf['year']) for cf in interactive_cash_flows])
+    interactive_total_costs = sum([cf['platform_cost'] + cf['services_cost'] for cf in interactive_cash_flows])
     interactive_roi = (interactive_npv / interactive_total_costs * 100) if interactive_total_costs > 0 else 0
     
     # Display interactive results
     st.markdown("### Interactive Results vs Original")
     
+    # Show sync status
+    if (interactive_alert_reduction == current_alert_reduction and 
+        interactive_incident_reduction == current_incident_reduction and
+        interactive_mttr_improvement == current_mttr_improvement and
+        interactive_platform_cost_mult == 1.0 and
+        interactive_implementation_delay == current_implementation_delay and
+        int(interactive_discount_rate * 100) == current_discount_rate):
+        st.success("✅ Sliders match current configuration - results should show 0% change")
+    else:
+        st.info("ℹ️ Sliders modified from current configuration")
+    
     result_col1, result_col2, result_col3, result_col4 = st.columns(4)
+    
+    # Use the same calculation method for original values
+    original_total_costs = sum([cf['platform_cost'] + cf['services_cost'] for cf in scenario_results['Expected']['cash_flows']])
     
     original_values = {
         'benefits': total_annual_benefits,
-        'costs': total_costs_3yr,
+        'costs': original_total_costs,
         'npv': scenario_results['Expected']['npv'],
         'roi': scenario_results['Expected']['roi'] * 100
     }
