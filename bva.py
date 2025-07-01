@@ -1861,7 +1861,7 @@ evaluation_years = st.sidebar.slider(
 )
 discount_rate = st.sidebar.slider(
     "NPV Discount Rate (%)", 
-    0, 20, 10,
+    0, 20, 3,
     key="discount_rate"
 ) / 100
 
