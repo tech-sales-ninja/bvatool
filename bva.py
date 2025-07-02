@@ -109,9 +109,9 @@ def check_calculation_health():
     alert_fte_percentage = st.session_state.get('alert_fte_percentage', 0)
     incident_fte_percentage = st.session_state.get('incident_fte_percentage', 0)
     total_annual_benefits = st.session_state.get('total_annual_benefits', 0)
-    avg_alert_fte_salary = st.session_state.get('avg_alert_fte_salary', 50000)
+    avg_alert_fte_salary = st.session_state.get('avg_alert_fte_salary', 0)
     alert_ftes = st.session_state.get('alert_ftes', 0)
-    avg_incident_fte_salary = st.session_state.get('avg_incident_fte_salary', 50000)
+    avg_incident_fte_salary = st.session_state.get('avg_incident_fte_salary', 0)
     incident_ftes = st.session_state.get('incident_ftes', 0)
     
     # Check if time allocation exceeds 100%
@@ -515,13 +515,13 @@ def get_default_value(key):
         'alert_volume': 0,
         'alert_ftes': 0,
         'avg_alert_triage_time': 0,
-        'avg_alert_fte_salary': 50000,
+        'avg_alert_fte_salary': 0,
         'alert_reduction_pct': 0,
         'alert_triage_time_saved_pct': 0,
         'incident_volume': 0,
         'incident_ftes': 0,
         'avg_incident_triage_time': 0,
-        'avg_incident_fte_salary': 50000,
+        'avg_incident_fte_salary': 0,
         'incident_reduction_pct': 0,
         'incident_triage_time_savings_pct': 0,
         'major_incident_volume': 0,
@@ -533,7 +533,7 @@ def get_default_value(key):
         'manual_discovery_cycles_per_year': 0,
         'hours_per_discovery_cycle': 0,
         'asset_management_ftes': 0,
-        'avg_asset_mgmt_fte_salary': 55000,
+        'avg_asset_mgmt_fte_salary': 0,
         'asset_discovery_automation_pct': 0,
         'tool_savings': 0,
         'people_efficiency': 0,
@@ -1812,7 +1812,7 @@ avg_alert_triage_time = st.sidebar.number_input(
 )
 avg_alert_fte_salary = st.sidebar.number_input(
     "Average Annual Salary per Alert Management FTE", 
-    value=50000,
+    value=0,
     key="avg_alert_fte_salary"
 )
 alert_reduction_pct = st.sidebar.slider(
@@ -1846,7 +1846,7 @@ avg_incident_triage_time = st.sidebar.number_input(
 )
 avg_incident_fte_salary = st.sidebar.number_input(
     "Average Annual Salary per Incident Management FTE", 
-    value=50000,
+    value=0,
     key="avg_incident_fte_salary"
 )
 incident_reduction_pct = st.sidebar.slider(
@@ -1916,7 +1916,7 @@ asset_management_ftes = st.sidebar.number_input(
 )
 avg_asset_mgmt_fte_salary = st.sidebar.number_input(
     "Average Annual Salary per Asset Management FTE", 
-    value=55000,
+    value=0,
     key="avg_asset_mgmt_fte_salary"
 )
 asset_discovery_automation_pct = st.sidebar.slider(
