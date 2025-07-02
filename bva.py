@@ -1,4 +1,4 @@
-# v2.1 - Enhanced with Asset Discovery & CMDB Management capabilities
+# v2.1 - Enhanced with Asset Discovery capabilities
 
 import streamlit as st
 import numpy as np
@@ -304,10 +304,8 @@ def create_benefit_breakdown_chart(currency_symbol):
     revenue_growth = st.session_state.get('revenue_growth', 0)
     capex_savings = st.session_state.get('capex_savings', 0)
     opex_savings = st.session_state.get('opex_savings', 0)
-    # NEW: Asset management benefits
+    # Asset management benefits (no CMDB)
     asset_discovery_savings = st.session_state.get('asset_discovery_savings', 0)
-    cmdb_data_quality_savings = st.session_state.get('cmdb_data_quality_savings', 0)
-    asset_compliance_savings = st.session_state.get('asset_compliance_savings', 0)
     
     benefits_data = {
         'Category': [
@@ -315,20 +313,20 @@ def create_benefit_breakdown_chart(currency_symbol):
             'Incident Triage Efficiency', 'MTTR Improvement', 'Tool Consolidation',
             'People Efficiency', 'FTE Avoidance', 'SLA Penalty Avoidance',
             'Revenue Growth', 'CAPEX Savings', 'OPEX Savings',
-            'Asset Discovery Automation', 'CMDB Data Quality', 'Asset Compliance Automation'
+            'Asset Discovery Automation'
         ],
         'Annual Value': [
             alert_reduction_savings, alert_triage_savings, incident_reduction_savings,
             incident_triage_savings, major_incident_savings, tool_savings,
             people_cost_per_year, fte_avoidance, sla_penalty_avoidance,
             revenue_growth, capex_savings, opex_savings,
-            asset_discovery_savings, cmdb_data_quality_savings, asset_compliance_savings
+            asset_discovery_savings
         ],
         'Category Type': [
             'Operational', 'Operational', 'Operational', 'Operational', 'Operational',
             'Cost Reduction', 'Efficiency', 'Strategic', 'Risk Mitigation',
             'Revenue', 'Cost Reduction', 'Cost Reduction',
-            'Asset Management', 'Asset Management', 'Asset Management'
+            'Asset Management'
         ]
     }
     
@@ -365,10 +363,8 @@ def create_cost_vs_benefit_waterfall(currency_symbol):
     opex_savings = st.session_state.get('opex_savings', 0)
     platform_cost = st.session_state.get('platform_cost', 0)
     services_cost = st.session_state.get('services_cost', 0)
-    # NEW: Asset management savings
+    # Asset management savings (no CMDB)
     asset_discovery_savings = st.session_state.get('asset_discovery_savings', 0)
-    cmdb_data_quality_savings = st.session_state.get('cmdb_data_quality_savings', 0)
-    asset_compliance_savings = st.session_state.get('asset_compliance_savings', 0)
     
     # Prepare data for waterfall chart
     categories = ['Starting Point', 'Alert Savings', 'Incident Savings', 'MTTR Savings', 
@@ -378,7 +374,7 @@ def create_cost_vs_benefit_waterfall(currency_symbol):
              alert_reduction_savings + alert_triage_savings,
              incident_reduction_savings + incident_triage_savings,
              major_incident_savings,
-             asset_discovery_savings + cmdb_data_quality_savings + asset_compliance_savings,
+             asset_discovery_savings,
              tool_savings + people_cost_per_year + fte_avoidance + sla_penalty_avoidance + revenue_growth + capex_savings + opex_savings,
              -platform_cost,
              -services_cost,
@@ -456,7 +452,7 @@ def get_all_input_values():
     """Collect all input values from the current session state"""
     input_values = {}
     
-    # Get all the input keys from your existing inputs
+    # Get all the input keys from your existing inputs (removed compliance fields)
     input_keys = [
         # Basic Configuration
         'solution_name', 'industry_template', 'currency', 
@@ -478,14 +474,9 @@ def get_all_input_values():
         # Major Incidents
         'major_incident_volume', 'avg_major_incident_cost', 'avg_mttr_hours', 'mttr_improvement_pct',
         
-        # Asset Discovery & CMDB Management
+        # Asset Discovery (no CMDB)
         'asset_volume', 'manual_discovery_cycles_per_year', 'hours_per_discovery_cycle',
         'asset_management_ftes', 'avg_asset_mgmt_fte_salary', 'asset_discovery_automation_pct',
-        'cmdb_records', 'current_cmdb_accuracy_pct', 'target_cmdb_accuracy_pct',
-        'cmdb_maintenance_hours_per_month', 'decisions_based_on_cmdb_per_year',
-        'avg_cost_per_inaccurate_decision', 'compliance_audit_frequency_per_year',
-        'hours_per_compliance_audit', 'license_over_provisioning_pct',
-        'average_annual_license_cost_per_asset', 'compliance_process_automation_pct',
         
         # Additional Benefits
         'tool_savings', 'people_efficiency', 'fte_avoidance', 'sla_penalty', 
@@ -537,24 +528,13 @@ def get_default_value(key):
         'avg_major_incident_cost': 0,
         'avg_mttr_hours': 0.0,
         'mttr_improvement_pct': 0,
-        # Asset management defaults
+        # Asset management defaults (no CMDB)
         'asset_volume': 0,
         'manual_discovery_cycles_per_year': 0,
         'hours_per_discovery_cycle': 0,
         'asset_management_ftes': 0,
         'avg_asset_mgmt_fte_salary': 55000,
         'asset_discovery_automation_pct': 0,
-        'cmdb_records': 0,
-        'current_cmdb_accuracy_pct': 70,
-        'target_cmdb_accuracy_pct': 95,
-        'cmdb_maintenance_hours_per_month': 0,
-        'decisions_based_on_cmdb_per_year': 0,
-        'avg_cost_per_inaccurate_decision': 0,
-        'compliance_audit_frequency_per_year': 0,
-        'hours_per_compliance_audit': 0,
-        'license_over_provisioning_pct': 0,
-        'average_annual_license_cost_per_asset': 0,
-        'compliance_process_automation_pct': 0,
         'tool_savings': 0,
         'people_efficiency': 0,
         'fte_avoidance': 0,
@@ -577,7 +557,7 @@ def export_to_csv(input_values):
     # Write header
     writer.writerow(['Parameter', 'Value', 'Description'])
     
-    # Define parameter descriptions for better readability
+    # Define parameter descriptions for better readability (removed compliance descriptions)
     descriptions = {
         'solution_name': 'Solution Name',
         'industry_template': 'Industry Template',
@@ -605,24 +585,13 @@ def export_to_csv(input_values):
         'avg_major_incident_cost': 'Average Major Incident Cost per Hour',
         'avg_mttr_hours': 'Average MTTR (hours)',
         'mttr_improvement_pct': 'MTTR Improvement Percentage',
-        # Asset management descriptions
+        # Asset management descriptions (no CMDB)
         'asset_volume': 'Total IT Assets Under Management',
         'manual_discovery_cycles_per_year': 'Manual Discovery Cycles per Year',
         'hours_per_discovery_cycle': 'Hours per Manual Discovery Cycle',
         'asset_management_ftes': 'Total FTEs Managing IT Assets',
         'avg_asset_mgmt_fte_salary': 'Average Annual Salary per Asset Management FTE',
         'asset_discovery_automation_pct': '% Asset Discovery Process Automated',
-        'cmdb_records': 'Total CMDB Configuration Items (CIs)',
-        'current_cmdb_accuracy_pct': 'Current CMDB Data Accuracy %',
-        'target_cmdb_accuracy_pct': 'Target CMDB Data Accuracy % (with AIOPs)',
-        'cmdb_maintenance_hours_per_month': 'Manual CMDB Maintenance Hours per Month',
-        'decisions_based_on_cmdb_per_year': 'Annual Decisions Based on CMDB Data',
-        'avg_cost_per_inaccurate_decision': 'Average Cost per Decision Made on Inaccurate Data',
-        'compliance_audit_frequency_per_year': 'Compliance Audits per Year',
-        'hours_per_compliance_audit': 'Hours per Compliance Audit Preparation',
-        'license_over_provisioning_pct': '% License Over-Provisioning',
-        'average_annual_license_cost_per_asset': 'Average Annual License Cost per Asset',
-        'compliance_process_automation_pct': '% Compliance Process Automated',
         'tool_savings': 'Tool Consolidation Savings',
         'people_efficiency': 'People Efficiency Gains',
         'fte_avoidance': 'FTE Avoidance (annualized value)',
@@ -683,7 +652,7 @@ def export_to_json(input_values):
         'metadata': {
             'export_date': datetime.now().isoformat(),
             'version': '2.1',
-            'tool': 'Enhanced BVA Business Value Assessment with Asset Management'
+            'tool': 'Enhanced BVA Business Value Assessment with Asset Discovery'
         },
         'configuration': input_values
     }
@@ -762,10 +731,8 @@ def generate_executive_pdf_report(logo_file=None):
                          st.session_state.get('opex_savings', 0))
         equivalent_ftes = st.session_state.get('equivalent_ftes_from_savings', 0)
         operational_savings = st.session_state.get('total_operational_savings_from_time_saved', 0)
-        # NEW: Asset management benefits
+        # Asset management benefits (no CMDB)
         asset_discovery_savings = st.session_state.get('asset_discovery_savings', 0)
-        cmdb_data_quality_savings = st.session_state.get('cmdb_data_quality_savings', 0)
-        asset_compliance_savings = st.session_state.get('asset_compliance_savings', 0)
         
         # Get scenario results from session state
         scenario_results_from_state = st.session_state.get('scenario_results', None)
@@ -857,7 +824,7 @@ def generate_executive_pdf_report(logo_file=None):
         elements.append(Paragraph("Executive Summary", heading_style))
         
         expected_result = scenario_results['Expected']
-        total_asset_savings = asset_discovery_savings + cmdb_data_quality_savings + asset_compliance_savings
+        total_asset_savings = asset_discovery_savings
         exec_summary = f"""
         This comprehensive business value assessment analyzes the financial impact of implementing {solution_name} 
         over a {evaluation_years}-year period. Our analysis shows a projected NPV of {currency_symbol}{expected_result['npv']:,.0f} 
@@ -869,8 +836,8 @@ def generate_executive_pdf_report(logo_file=None):
         {mttr_improvement_pct}% will deliver significant operational benefits.
         
         <br/><br/>
-        <b>Asset Management Value:</b> The solution will also automate asset discovery and improve CMDB data quality, 
-        delivering an additional {currency_symbol}{total_asset_savings:,.0f} in annual value through improved IT asset management processes.
+        <b>Asset Discovery Value:</b> The solution will also automate asset discovery processes, 
+        delivering an additional {currency_symbol}{total_asset_savings:,.0f} in annual value through improved IT asset management.
         
         <br/><br/>
         <b>Key Recommendation:</b> Proceed with implementation based on strong financial justification and strategic benefits.
@@ -948,8 +915,6 @@ def generate_executive_pdf_report(logo_file=None):
             ('Incident Triage Efficiency', incident_triage_savings),
             ('MTTR Improvement', major_incident_savings),
             ('Asset Discovery Automation', asset_discovery_savings),
-            ('CMDB Data Quality', cmdb_data_quality_savings),
-            ('Asset Compliance Automation', asset_compliance_savings),
             ('Tool Consolidation', tool_savings),
             ('People Efficiency', people_efficiency),
             ('FTE Avoidance', fte_avoidance),
@@ -1071,49 +1036,6 @@ def calculate_asset_discovery_costs(asset_volume, manual_discovery_cycles_per_ye
     cost_per_discovery_cycle = total_discovery_cost / manual_discovery_cycles_per_year if manual_discovery_cycles_per_year > 0 else 0
     
     return cost_per_discovery_cycle, total_discovery_cost, fte_time_percentage_on_discovery, working_hours_per_fte_per_year
-
-def calculate_cmdb_data_quality_costs(cmdb_records, current_accuracy_pct, cmdb_maintenance_hours_per_month,
-                                     avg_cost_per_inaccurate_decision, decisions_based_on_cmdb_per_year,
-                                     asset_management_ftes, avg_asset_mgmt_fte_salary):
-    """Calculate the cost of poor CMDB data quality"""
-    if cmdb_records == 0:
-        return 0, 0, 0
-    
-    # Calculate cost of inaccurate decisions
-    inaccuracy_rate = (100 - current_accuracy_pct) / 100
-    inaccurate_decisions_per_year = decisions_based_on_cmdb_per_year * inaccuracy_rate
-    annual_cost_of_inaccurate_decisions = inaccurate_decisions_per_year * avg_cost_per_inaccurate_decision
-    
-    # Calculate cost of manual CMDB maintenance
-    annual_maintenance_hours = cmdb_maintenance_hours_per_month * 12
-    hourly_fte_cost = avg_asset_mgmt_fte_salary / (40 * 52) if avg_asset_mgmt_fte_salary > 0 else 0  # Assuming 40h/week, 52 weeks
-    annual_maintenance_cost = annual_maintenance_hours * hourly_fte_cost
-    
-    # Total cost of poor data quality
-    total_cmdb_quality_cost = annual_cost_of_inaccurate_decisions + annual_maintenance_cost
-    
-    return total_cmdb_quality_cost, annual_cost_of_inaccurate_decisions, annual_maintenance_cost
-
-def calculate_asset_compliance_costs(total_assets, compliance_audit_frequency_per_year, hours_per_compliance_audit,
-                                   license_over_provisioning_pct, average_annual_license_cost_per_asset,
-                                   asset_management_ftes, avg_asset_mgmt_fte_salary):
-    """Calculate the cost of manual compliance and license management"""
-    if total_assets == 0:
-        return 0, 0, 0
-    
-    # Calculate audit costs
-    annual_audit_hours = compliance_audit_frequency_per_year * hours_per_compliance_audit
-    hourly_fte_cost = avg_asset_mgmt_fte_salary / (40 * 52) if avg_asset_mgmt_fte_salary > 0 else 0
-    annual_audit_cost = annual_audit_hours * hourly_fte_cost
-    
-    # Calculate license over-provisioning costs
-    over_provisioned_licenses = total_assets * (license_over_provisioning_pct / 100)
-    annual_license_waste = over_provisioned_licenses * average_annual_license_cost_per_asset
-    
-    # Total compliance costs
-    total_compliance_cost = annual_audit_cost + annual_license_waste
-    
-    return total_compliance_cost, annual_audit_cost, annual_license_waste
 
 def calculate_benefit_realization_factor(month, implementation_delay_months, ramp_up_months):
     """Calculate what percentage of benefits are realized in a given month"""
@@ -1725,13 +1647,13 @@ solution_name = st.sidebar.text_input("Solution Name", value="AIOPs", key="solut
 st.sidebar.subheader("📅 Implementation Timeline")
 implementation_delay_months = st.sidebar.slider(
     "Implementation Delay (months)", 
-    0, 24, 6, 
+    0, 24, 0, 
     help="Time from project start until benefits begin to be realized",
     key="implementation_delay"
 )
 benefits_ramp_up_months = st.sidebar.slider(
     "Benefits Ramp-up Period (months)", 
-    0, 12, 3,
+    0, 12, 0,
     help="Time to reach full benefits after go-live (gradual adoption)",
     key="benefits_ramp_up"
 )
@@ -1743,7 +1665,7 @@ billing_start_month = st.sidebar.slider(
 )
 st.sidebar.caption("💡 Platform costs start from billing month. Benefits start when implementation completes (independent timelines)")
 
-# --- Industry Benchmark Templates ---
+# --- Industry Benchmark Templates (removed compliance automation) ---
 industry_templates = {
     "Custom": {},
     "Financial Services": {
@@ -1755,13 +1677,11 @@ industry_templates = {
         "avg_incident_triage_time": 30,
         "incident_reduction_pct": 40,
         "mttr_improvement_pct": 40,
-        # Asset management fields
+        # Asset management fields (no CMDB)
         "asset_volume": 15000,
         "manual_discovery_cycles_per_year": 4,
         "hours_per_discovery_cycle": 120,
-        "current_cmdb_accuracy_pct": 65,
-        "asset_discovery_automation_pct": 70,
-        "compliance_process_automation_pct": 60
+        "asset_discovery_automation_pct": 70
     },
     "Retail": {
         "alert_volume": 600_000,
@@ -1772,13 +1692,11 @@ industry_templates = {
         "avg_incident_triage_time": 25,
         "incident_reduction_pct": 30,
         "mttr_improvement_pct": 30,
-        # Asset management fields
+        # Asset management fields (no CMDB)
         "asset_volume": 8000,
         "manual_discovery_cycles_per_year": 6,
         "hours_per_discovery_cycle": 80,
-        "current_cmdb_accuracy_pct": 70,
-        "asset_discovery_automation_pct": 60,
-        "compliance_process_automation_pct": 50
+        "asset_discovery_automation_pct": 60
     },
     "MSP": {
         "alert_volume": 2_500_000,
@@ -1789,13 +1707,11 @@ industry_templates = {
         "avg_incident_triage_time": 35,
         "incident_reduction_pct": 50,
         "mttr_improvement_pct": 50,
-        # Asset management fields
+        # Asset management fields (no CMDB)
         "asset_volume": 25000,
         "manual_discovery_cycles_per_year": 12,
         "hours_per_discovery_cycle": 200,
-        "current_cmdb_accuracy_pct": 60,
-        "asset_discovery_automation_pct": 80,
-        "compliance_process_automation_pct": 70
+        "asset_discovery_automation_pct": 80
     },
     "Healthcare": {
         "alert_volume": 800_000,
@@ -1806,13 +1722,11 @@ industry_templates = {
         "avg_incident_triage_time": 30,
         "incident_reduction_pct": 35,
         "mttr_improvement_pct": 35,
-        # Asset management fields
+        # Asset management fields (no CMDB)
         "asset_volume": 12000,
         "manual_discovery_cycles_per_year": 3,
         "hours_per_discovery_cycle": 100,
-        "current_cmdb_accuracy_pct": 75,
-        "asset_discovery_automation_pct": 65,
-        "compliance_process_automation_pct": 65
+        "asset_discovery_automation_pct": 65
     },
     "Telecom": {
         "alert_volume": 1_800_000,
@@ -1823,13 +1737,11 @@ industry_templates = {
         "avg_incident_triage_time": 35,
         "incident_reduction_pct": 40,
         "mttr_improvement_pct": 45,
-        # Asset management fields
+        # Asset management fields (no CMDB)
         "asset_volume": 20000,
         "manual_discovery_cycles_per_year": 6,
         "hours_per_discovery_cycle": 150,
-        "current_cmdb_accuracy_pct": 68,
-        "asset_discovery_automation_pct": 75,
-        "compliance_process_automation_pct": 60
+        "asset_discovery_automation_pct": 75
     }
 }
 
@@ -1973,8 +1885,8 @@ mttr_improvement_pct = st.sidebar.slider(
     key="mttr_improvement_pct"
 )
 
-# --- ASSET DISCOVERY & CMDB MANAGEMENT INPUTS ---
-st.sidebar.subheader("🏗️ Asset Discovery & CMDB Management")
+# --- ASSET DISCOVERY INPUTS ---
+st.sidebar.subheader("🏗️ Asset Discovery")
 
 # Asset Discovery Automation
 st.sidebar.markdown("**Asset Discovery Automation**")
@@ -2000,7 +1912,7 @@ asset_management_ftes = st.sidebar.number_input(
     "Total FTEs Managing IT Assets", 
     value=0,
     key="asset_management_ftes",
-    help="FTEs involved in asset discovery, CMDB management, compliance"
+    help="FTEs involved in asset discovery"
 )
 avg_asset_mgmt_fte_salary = st.sidebar.number_input(
     "Average Annual Salary per Asset Management FTE", 
@@ -2012,78 +1924,6 @@ asset_discovery_automation_pct = st.sidebar.slider(
     0, 100, template.get("asset_discovery_automation_pct", 0),
     key="asset_discovery_automation_pct",
     help="Percentage of manual discovery process that can be automated"
-)
-
-# CMDB Data Quality
-st.sidebar.markdown("**CMDB Data Quality & Accuracy**")
-cmdb_records = st.sidebar.number_input(
-    "Total CMDB Configuration Items (CIs)", 
-    value=0,
-    key="cmdb_records",
-    help="Total number of configuration items in your CMDB"
-)
-current_cmdb_accuracy_pct = st.sidebar.slider(
-    "Current CMDB Data Accuracy %", 
-    0, 100, template.get("current_cmdb_accuracy_pct", 70),
-    key="current_cmdb_accuracy_pct",
-    help="Estimated percentage of accurate/up-to-date data in CMDB"
-)
-target_cmdb_accuracy_pct = st.sidebar.slider(
-    "Target CMDB Data Accuracy % (with AIOPs)", 
-    0, 100, 95,
-    key="target_cmdb_accuracy_pct",
-    help="Target accuracy percentage with automated discovery"
-)
-cmdb_maintenance_hours_per_month = st.sidebar.number_input(
-    "Manual CMDB Maintenance Hours per Month", 
-    value=0,
-    key="cmdb_maintenance_hours_per_month",
-    help="Hours spent manually updating/cleaning CMDB data monthly"
-)
-decisions_based_on_cmdb_per_year = st.sidebar.number_input(
-    "Annual Decisions Based on CMDB Data", 
-    value=0,
-    key="decisions_based_on_cmdb_per_year",
-    help="Number of operational decisions per year that rely on CMDB data"
-)
-avg_cost_per_inaccurate_decision = st.sidebar.number_input(
-    "Average Cost per Decision Made on Inaccurate Data", 
-    value=0,
-    key="avg_cost_per_inaccurate_decision",
-    help="Estimated cost when decisions are made based on wrong CMDB data"
-)
-
-# Asset Compliance & Lifecycle
-st.sidebar.markdown("**Asset Compliance & Lifecycle Management**")
-compliance_audit_frequency_per_year = st.sidebar.number_input(
-    "Compliance Audits per Year", 
-    value=0,
-    key="compliance_audit_frequency_per_year",
-    help="Number of compliance/audit cycles per year requiring asset data"
-)
-hours_per_compliance_audit = st.sidebar.number_input(
-    "Hours per Compliance Audit Preparation", 
-    value=0,
-    key="hours_per_compliance_audit",
-    help="FTE hours spent preparing asset data for each audit"
-)
-license_over_provisioning_pct = st.sidebar.slider(
-    "% License Over-Provisioning", 
-    0, 50, 0,
-    key="license_over_provisioning_pct",
-    help="Estimated percentage of unused/unnecessary software licenses"
-)
-average_annual_license_cost_per_asset = st.sidebar.number_input(
-    "Average Annual License Cost per Asset", 
-    value=0,
-    key="average_annual_license_cost_per_asset",
-    help="Average software licensing cost per IT asset annually"
-)
-compliance_process_automation_pct = st.sidebar.slider(
-    "% Compliance Process Automated", 
-    0, 100, template.get("compliance_process_automation_pct", 0),
-    key="compliance_process_automation_pct",
-    help="Percentage of compliance processes that can be automated"
 )
 
 # --- OTHER BENEFITS ---
@@ -2192,27 +2032,6 @@ cost_per_discovery_cycle, total_discovery_cost, discovery_fte_percentage, discov
 # Asset discovery automation savings
 asset_discovery_savings = total_discovery_cost * (asset_discovery_automation_pct / 100)
 
-# Calculate CMDB data quality costs and savings
-total_cmdb_quality_cost, cost_of_inaccurate_decisions, cmdb_maintenance_cost = calculate_cmdb_data_quality_costs(
-    cmdb_records, current_cmdb_accuracy_pct, cmdb_maintenance_hours_per_month,
-    avg_cost_per_inaccurate_decision, decisions_based_on_cmdb_per_year,
-    asset_management_ftes, avg_asset_mgmt_fte_salary
-)
-
-# CMDB data quality improvement savings
-accuracy_improvement = (target_cmdb_accuracy_pct - current_cmdb_accuracy_pct) / 100
-cmdb_data_quality_savings = total_cmdb_quality_cost * accuracy_improvement
-
-# Calculate compliance costs and savings
-total_compliance_cost, audit_cost, license_waste_cost = calculate_asset_compliance_costs(
-    asset_volume, compliance_audit_frequency_per_year, hours_per_compliance_audit,
-    license_over_provisioning_pct, average_annual_license_cost_per_asset,
-    asset_management_ftes, avg_asset_mgmt_fte_salary
-)
-
-# Compliance automation savings
-asset_compliance_savings = total_compliance_cost * (compliance_process_automation_pct / 100)
-
 # Store calculated values in session state for use in other functions
 st.session_state['cost_per_alert'] = cost_per_alert
 st.session_state['cost_per_incident'] = cost_per_incident
@@ -2222,15 +2041,11 @@ st.session_state['alert_fte_percentage'] = alert_fte_percentage
 st.session_state['incident_fte_percentage'] = incident_fte_percentage
 st.session_state['working_hours_per_fte_per_year'] = working_hours_per_fte_per_year
 
-# Store asset management calculated values in session state
+# Store asset management calculated values in session state (no CMDB)
 st.session_state['cost_per_discovery_cycle'] = cost_per_discovery_cycle
 st.session_state['total_discovery_cost'] = total_discovery_cost
 st.session_state['discovery_fte_percentage'] = discovery_fte_percentage
 st.session_state['asset_discovery_savings'] = asset_discovery_savings
-st.session_state['total_cmdb_quality_cost'] = total_cmdb_quality_cost
-st.session_state['cmdb_data_quality_savings'] = cmdb_data_quality_savings
-st.session_state['total_compliance_cost'] = total_compliance_cost
-st.session_state['asset_compliance_savings'] = asset_compliance_savings
 
 # Calculate baseline savings
 avoided_alerts = alert_volume * (alert_reduction_pct / 100)
@@ -2256,13 +2071,13 @@ st.session_state['incident_reduction_savings'] = incident_reduction_savings
 st.session_state['incident_triage_savings'] = incident_triage_savings
 st.session_state['major_incident_savings'] = major_incident_savings
 
-# Total Annual Benefits (INCLUDING ASSET MANAGEMENT)
+# Total Annual Benefits (UPDATED - NO CMDB SAVINGS)
 total_annual_benefits = (
     alert_reduction_savings + alert_triage_savings + incident_reduction_savings +
     incident_triage_savings + major_incident_savings + tool_savings + people_cost_per_year +
     fte_avoidance + sla_penalty_avoidance + revenue_growth + capex_savings + opex_savings +
-    # NEW: Asset management savings
-    asset_discovery_savings + cmdb_data_quality_savings + asset_compliance_savings
+    # Asset management savings (no CMDB)
+    asset_discovery_savings
 )
 
 st.session_state['total_annual_benefits'] = total_annual_benefits
@@ -2385,21 +2200,12 @@ with col3:
     st.metric(label="Payback Period",
               value=f"{expected_payback_months}")
 
-# NEW: Asset Management Value Summary
-if asset_discovery_savings > 0 or cmdb_data_quality_savings > 0 or asset_compliance_savings > 0:
+# Asset Management Value Summary (no CMDB)
+if asset_discovery_savings > 0:
     st.markdown("---")
-    st.subheader("🏗️ Asset Management Value")
+    st.subheader("🏗️ Asset Discovery Value")
     
-    asset_col1, asset_col2, asset_col3 = st.columns(3)
-    
-    with asset_col1:
-        st.metric("Asset Discovery Automation", f"{currency_symbol}{asset_discovery_savings:,.0f}")
-    
-    with asset_col2:
-        st.metric("CMDB Data Quality Improvement", f"{currency_symbol}{cmdb_data_quality_savings:,.0f}")
-    
-    with asset_col3:
-        st.metric("Compliance Process Automation", f"{currency_symbol}{asset_compliance_savings:,.0f}")
+    st.metric("Asset Discovery Automation", f"{currency_symbol}{asset_discovery_savings:,.0f}")
 
 st.markdown("---")
 
@@ -2568,69 +2374,28 @@ with calc_tabs[2]:
             - **Total MTTR savings: {currency_symbol}{major_incident_savings:,.0f}**
             """)
 
-    # Asset Management Benefits
-    if asset_discovery_savings > 0 or cmdb_data_quality_savings > 0 or asset_compliance_savings > 0:
-        st.markdown("#### 🏗️ Asset Discovery & CMDB Management Benefits")
+    # Asset Management Benefits (no CMDB)
+    if asset_discovery_savings > 0:
+        st.markdown("#### 🏗️ Asset Discovery Benefits")
         
-        if asset_discovery_savings > 0:
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown(f"""
-                **Asset Discovery Automation:**
-                - Total assets under management: {asset_volume:,.0f}
-                - Manual discovery cycles per year: {manual_discovery_cycles_per_year}
-                - Hours per discovery cycle: {hours_per_discovery_cycle}
-                - Annual discovery cost: {currency_symbol}{total_discovery_cost:,.0f}
-                """)
-            
-            with col2:
-                st.markdown(f"""
-                **Discovery Automation Value:**
-                - Process automation percentage: {asset_discovery_automation_pct}%
-                - FTE time freed up: {discovery_fte_percentage*asset_discovery_automation_pct/100*100:.1f}% of {asset_management_ftes} FTEs
-                - **Total discovery savings: {currency_symbol}{asset_discovery_savings:,.0f}**
-                """)
+        col1, col2 = st.columns(2)
         
-        if cmdb_data_quality_savings > 0:
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown(f"""
-                **CMDB Data Quality Improvement:**
-                - Total CMDB CIs: {cmdb_records:,.0f}
-                - Current accuracy: {current_cmdb_accuracy_pct}%
-                - Target accuracy: {target_cmdb_accuracy_pct}%
-                - Accuracy improvement: {accuracy_improvement*100:.1f} percentage points
-                """)
-            
-            with col2:
-                st.markdown(f"""
-                **Data Quality Financial Impact:**
-                - Current annual cost of poor data: {currency_symbol}{total_cmdb_quality_cost:,.0f}
-                - Decisions based on CMDB annually: {decisions_based_on_cmdb_per_year:,.0f}
-                - **Total CMDB savings: {currency_symbol}{cmdb_data_quality_savings:,.0f}**
-                """)
+        with col1:
+            st.markdown(f"""
+            **Asset Discovery Automation:**
+            - Total assets under management: {asset_volume:,.0f}
+            - Manual discovery cycles per year: {manual_discovery_cycles_per_year}
+            - Hours per discovery cycle: {hours_per_discovery_cycle}
+            - Annual discovery cost: {currency_symbol}{total_discovery_cost:,.0f}
+            """)
         
-        if asset_compliance_savings > 0:
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown(f"""
-                **Asset Compliance Automation:**
-                - Compliance audits per year: {compliance_audit_frequency_per_year}
-                - Hours per audit preparation: {hours_per_compliance_audit}
-                - License over-provisioning: {license_over_provisioning_pct}%
-                - Annual compliance cost: {currency_symbol}{total_compliance_cost:,.0f}
-                """)
-            
-            with col2:
-                st.markdown(f"""
-                **Compliance Automation Value:**
-                - Process automation percentage: {compliance_process_automation_pct}%
-                - License waste reduction: {currency_symbol}{license_waste_cost * compliance_process_automation_pct/100:,.0f}
-                - **Total compliance savings: {currency_symbol}{asset_compliance_savings:,.0f}**
-                """)
+        with col2:
+            st.markdown(f"""
+            **Discovery Automation Value:**
+            - Process automation percentage: {asset_discovery_automation_pct}%
+            - FTE time freed up: {discovery_fte_percentage*asset_discovery_automation_pct/100*100:.1f}% of {asset_management_ftes} FTEs
+            - **Total discovery savings: {currency_symbol}{asset_discovery_savings:,.0f}**
+            """)
 
     # Additional Benefits Summary
     other_benefits_total = tool_savings + people_cost_per_year + fte_avoidance + sla_penalty_avoidance + revenue_growth + capex_savings + opex_savings
@@ -2668,8 +2433,8 @@ with calc_tabs[2]:
         st.metric("Operational Benefits", f"{currency_symbol}{operational_total:,.0f}")
     
     with col2:
-        asset_mgmt_total = asset_discovery_savings + cmdb_data_quality_savings + asset_compliance_savings
-        st.metric("Asset Management Benefits", f"{currency_symbol}{asset_mgmt_total:,.0f}")
+        asset_mgmt_total = asset_discovery_savings
+        st.metric("Asset Discovery Benefits", f"{currency_symbol}{asset_mgmt_total:,.0f}")
     
     with col3:
         st.metric("Additional Benefits", f"{currency_symbol}{other_benefits_total:,.0f}")
@@ -2794,13 +2559,12 @@ with calc_tabs[4]:
     # Asset management savings with interactive automation percentage
     interactive_asset_discovery_savings = total_discovery_cost * (interactive_asset_automation / 100)
     
-    # Total interactive benefits (now matches original calculation method)
+    # Total interactive benefits (now matches original calculation method, no CMDB)
     interactive_total_benefits = (interactive_alert_reduction_savings + interactive_alert_triage_savings + 
                                 interactive_incident_reduction_savings + interactive_incident_triage_savings + 
                                 interactive_mttr_savings + tool_savings + people_cost_per_year + 
                                 fte_avoidance + sla_penalty_avoidance + revenue_growth + 
-                                capex_savings + opex_savings + interactive_asset_discovery_savings + 
-                                cmdb_data_quality_savings + asset_compliance_savings)
+                                capex_savings + opex_savings + interactive_asset_discovery_savings)
     
     # Calculate interactive NPV using the SAME method as original (accounts for billing timing)
     interactive_cash_flows = []
@@ -3004,19 +2768,16 @@ with viz_tabs[0]:
         st.info("No benefits to display. Please enter some benefit values in the sidebar.")
     
     # Add summary statistics
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
     with col1:
         operational_savings = alert_reduction_savings + alert_triage_savings + incident_reduction_savings + incident_triage_savings + major_incident_savings
         st.metric("Operational Savings", f"{currency_symbol}{operational_savings:,.0f}")
     with col2:
-        asset_mgmt_savings = asset_discovery_savings + cmdb_data_quality_savings + asset_compliance_savings
-        st.metric("Asset Management Savings", f"{currency_symbol}{asset_mgmt_savings:,.0f}")
+        asset_mgmt_savings = asset_discovery_savings
+        st.metric("Asset Discovery Savings", f"{currency_symbol}{asset_mgmt_savings:,.0f}")
     with col3:
         cost_reduction = tool_savings + capex_savings + opex_savings
         st.metric("Cost Reduction", f"{currency_symbol}{cost_reduction:,.0f}")
-    with col4:
-        strategic_value = people_cost_per_year + fte_avoidance + revenue_growth + sla_penalty_avoidance
-        st.metric("Strategic Value", f"{currency_symbol}{strategic_value:,.0f}")
 
 with viz_tabs[1]:
     st.plotly_chart(create_cost_vs_benefit_waterfall(currency_symbol), use_container_width=True)
@@ -3106,7 +2867,7 @@ st.markdown("---")
 st.markdown("### 📋 Analysis Summary")
 
 # Configuration summary
-total_asset_mgmt_savings = asset_discovery_savings + cmdb_data_quality_savings + asset_compliance_savings
+total_asset_mgmt_savings = asset_discovery_savings
 config_summary = f"""
 **Configuration Summary:**
 - **Solution:** {solution_name}
@@ -3123,7 +2884,7 @@ config_summary = f"""
 - **Expected ROI:** {scenario_results['Expected']['roi']*100:.1f}%
 - **Payback Period:** {scenario_results['Expected']['payback_months']}
 - **Annual Benefits:** {currency_symbol}{total_annual_benefits:,.0f}
-- **Asset Management Value:** {currency_symbol}{total_asset_mgmt_savings:,.0f}
+- **Asset Discovery Value:** {currency_symbol}{total_asset_mgmt_savings:,.0f}
 - **Equivalent FTEs from Savings:** {equivalent_ftes_from_savings:.1f} FTEs
 """
 
@@ -3134,14 +2895,14 @@ with st.expander("📊 View Complete Configuration Summary"):
 st.markdown("---")
 col1, col2 = st.columns(2)
 with col1:
-    st.caption("**Enhanced Business Value Assessment Tool v2.1** - Now with Asset Discovery & CMDB Management")
+    st.caption("**Enhanced Business Value Assessment Tool v2.1** - Now with Asset Discovery")
 with col2:
     st.caption(f"**Analysis generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 # Pro tips
 st.info("💡 **Pro Tips:**")
 st.markdown("""
-- **Asset Management Value**: The new asset discovery and CMDB management capabilities add significant value beyond traditional monitoring
+- **Asset Discovery Value**: The asset discovery automation capabilities add significant value beyond traditional monitoring
 - **Company Logo**: Upload your logo in the sidebar to create professional PDF executive summaries
 - **PDF Executive Summary**: Generate comprehensive reports for stakeholders and executives
 - **Interactive Calculator**: Test different scenarios to understand sensitivity to key assumptions
@@ -3149,4 +2910,4 @@ st.markdown("""
 - **Export/Import**: Save configurations for future reference or stakeholder sharing
 """)
 
-st.success("🎯 **Latest Enhancement**: This tool now includes Asset Discovery & CMDB Management value streams, providing a more comprehensive view of AIOPs business value including IT asset automation, data quality improvements, and compliance process automation.")
+st.success("🎯 **Latest Enhancement**: This tool now includes Asset Discovery automation value streams, providing a comprehensive view of AIOPs business value including IT asset automation processes.")
