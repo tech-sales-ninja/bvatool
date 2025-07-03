@@ -1,3 +1,4 @@
+# Designed by N.Pearson
 # v2.1 - Enhanced with Asset Discovery capabilities
 
 import streamlit as st
