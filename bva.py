@@ -1,5 +1,5 @@
 # Designed by N.Pearson
-# v2.1 - Enhanced with Asset Discovery capabilities
+# v2.2 - Enhanced with Calculation Reasoning and Red Flag Detection
 
 import streamlit as st
 import numpy as np
@@ -127,6 +127,431 @@ def check_calculation_health():
         issues.append("Total annual benefits exceed 2x total FTE costs - please verify assumptions")
     
     return issues
+
+# --- NEW: RED FLAG DETECTION FUNCTIONS ---
+
+def detect_calculation_red_flags():
+    """Detect unrealistic calculations and provide detailed reasoning"""
+    red_flags = []
+    warnings = []
+    
+    # Get values from session state
+    cost_per_alert = st.session_state.get('cost_per_alert', 0)
+    cost_per_incident = st.session_state.get('cost_per_incident', 0)
+    alert_fte_percentage = st.session_state.get('alert_fte_percentage', 0)
+    incident_fte_percentage = st.session_state.get('incident_fte_percentage', 0)
+    total_annual_benefits = st.session_state.get('total_annual_benefits', 0)
+    alert_ftes = st.session_state.get('alert_ftes', 0)
+    incident_ftes = st.session_state.get('incident_ftes', 0)
+    avg_alert_fte_salary = st.session_state.get('avg_alert_fte_salary', 0)
+    avg_incident_fte_salary = st.session_state.get('avg_incident_fte_salary', 0)
+    alert_volume = st.session_state.get('alert_volume', 0)
+    incident_volume = st.session_state.get('incident_volume', 0)
+    avg_alert_triage_time = st.session_state.get('avg_alert_triage_time', 0)
+    avg_incident_triage_time = st.session_state.get('avg_incident_triage_time', 0)
+    working_hours_per_fte_per_year = st.session_state.get('working_hours_per_fte_per_year', 2000)
+    currency_symbol = st.session_state.get('currency', '$')
+    
+    # Red Flag 1: Extremely high cost per alert/incident
+    if cost_per_alert > 100:
+        reasoning_text = f"""Your calculated cost per alert is {currency_symbol}{cost_per_alert:.2f}, which seems very high.
+
+**How this is calculated:**
+- Total FTE time on alerts: {alert_volume * avg_alert_triage_time / 60:,.0f} hours/year
+- Total FTE capacity: {alert_ftes * working_hours_per_fte_per_year:,.0f} hours/year
+- FTE utilization on alerts: {alert_fte_percentage*100:.1f}%
+- Annual FTE cost for alerts: {currency_symbol}{alert_ftes * avg_alert_fte_salary:,.0f}
+- Cost allocated to alerts: {currency_symbol}{alert_ftes * avg_alert_fte_salary * alert_fte_percentage:,.0f}
+
+**Likely issues:**
+- Alert triage time ({avg_alert_triage_time} minutes) may be too high
+- Number of FTEs ({alert_ftes}) may be too high for the alert volume
+- FTE salaries ({currency_symbol}{avg_alert_fte_salary:,.0f}) may be inflated
+- Alert volume ({alert_volume:,}) may be too low
+
+**Industry benchmarks:** Alert costs typically range from {currency_symbol}0.50 to {currency_symbol}15.00"""
+        
+        red_flags.append({
+            'type': 'High Cost Per Alert',
+            'value': f"{currency_symbol}{cost_per_alert:.2f}",
+            'reasoning': reasoning_text,
+            'severity': 'high'
+        })
+    
+    if cost_per_incident > 500:
+        reasoning_text = f"""Your calculated cost per incident is {currency_symbol}{cost_per_incident:.2f}, which seems very high.
+
+**How this is calculated:**
+- Total FTE time on incidents: {incident_volume * avg_incident_triage_time / 60:,.0f} hours/year
+- Total FTE capacity: {incident_ftes * working_hours_per_fte_per_year:,.0f} hours/year
+- FTE utilization on incidents: {incident_fte_percentage*100:.1f}%
+- Annual FTE cost for incidents: {currency_symbol}{incident_ftes * avg_incident_fte_salary:,.0f}
+- Cost allocated to incidents: {currency_symbol}{incident_ftes * avg_incident_fte_salary * incident_fte_percentage:,.0f}
+
+**Likely issues:**
+- Incident triage time ({avg_incident_triage_time} minutes) may be too high
+- Number of FTEs ({incident_ftes}) may be too high for the incident volume
+- FTE salaries ({currency_symbol}{avg_incident_fte_salary:,.0f}) may be inflated
+- Incident volume ({incident_volume:,}) may be too low
+
+**Industry benchmarks:** Incident costs typically range from {currency_symbol}5.00 to {currency_symbol}200.00"""
+        
+        red_flags.append({
+            'type': 'High Cost Per Incident',
+            'value': f"{currency_symbol}{cost_per_incident:.2f}",
+            'reasoning': reasoning_text,
+            'severity': 'high'
+        })
+    
+    # Red Flag 2: FTE utilization over 100%
+    if alert_fte_percentage > 1.0:
+        reasoning_text = f"""Your alert management requires {alert_fte_percentage*100:.1f}% of available FTE time, which is impossible.
+
+**The math breakdown:**
+- Total alert time needed: {alert_volume:,} alerts × {avg_alert_triage_time} minutes = {alert_volume * avg_alert_triage_time:,.0f} minutes/year
+- Convert to hours: {alert_volume * avg_alert_triage_time / 60:,.0f} hours/year
+- Available FTE hours: {alert_ftes} FTEs × {working_hours_per_fte_per_year:,.0f} hours = {alert_ftes * working_hours_per_fte_per_year:,.0f} hours/year
+- Utilization: {alert_volume * avg_alert_triage_time / 60:,.0f} ÷ {alert_ftes * working_hours_per_fte_per_year:,.0f} = {alert_fte_percentage*100:.1f}%
+
+**To fix this, you need to:**
+- Increase the number of FTEs managing alerts (currently {alert_ftes})
+- Reduce the average triage time per alert (currently {avg_alert_triage_time} minutes)
+- Reduce the alert volume (currently {alert_volume:,})
+- Increase working hours per FTE (currently {working_hours_per_fte_per_year:,.0f})"""
+        
+        red_flags.append({
+            'type': 'Over-allocated Alert FTEs',
+            'value': f"{alert_fte_percentage*100:.1f}%",
+            'reasoning': reasoning_text,
+            'severity': 'critical'
+        })
+    
+    if incident_fte_percentage > 1.0:
+        reasoning_text = f"""Your incident management requires {incident_fte_percentage*100:.1f}% of available FTE time, which is impossible.
+
+**The math breakdown:**
+- Total incident time needed: {incident_volume:,} incidents × {avg_incident_triage_time} minutes = {incident_volume * avg_incident_triage_time:,.0f} minutes/year
+- Convert to hours: {incident_volume * avg_incident_triage_time / 60:,.0f} hours/year
+- Available FTE hours: {incident_ftes} FTEs × {working_hours_per_fte_per_year:,.0f} hours = {incident_ftes * working_hours_per_fte_per_year:,.0f} hours/year
+- Utilization: {incident_volume * avg_incident_triage_time / 60:,.0f} ÷ {incident_ftes * working_hours_per_fte_per_year:,.0f} = {incident_fte_percentage*100:.1f}%
+
+**To fix this, you need to:**
+- Increase the number of FTEs managing incidents (currently {incident_ftes})
+- Reduce the average triage time per incident (currently {avg_incident_triage_time} minutes)
+- Reduce the incident volume (currently {incident_volume:,})
+- Increase working hours per FTE (currently {working_hours_per_fte_per_year:,.0f})"""
+        
+        red_flags.append({
+            'type': 'Over-allocated Incident FTEs',
+            'value': f"{incident_fte_percentage*100:.1f}%",
+            'reasoning': reasoning_text,
+            'severity': 'critical'
+        })
+    
+    # Red Flag 3: Benefits seem disproportionately high
+    total_fte_costs = (alert_ftes * avg_alert_fte_salary) + (incident_ftes * avg_incident_fte_salary)
+    if total_fte_costs > 0 and total_annual_benefits > total_fte_costs * 3:
+        reasoning_text = f"""Your total annual benefits ({currency_symbol}{total_annual_benefits:,.0f}) are {total_annual_benefits/total_fte_costs:.1f}x your total FTE costs.
+
+**This seems unrealistic because:**
+- Total FTE costs: {currency_symbol}{total_fte_costs:,.0f}
+- Total benefits: {currency_symbol}{total_annual_benefits:,.0f}
+- Ratio: {total_annual_benefits/total_fte_costs:.1f}:1
+
+**Typical ratios should be:**
+- Conservative: 0.5x to 1.5x of FTE costs
+- Realistic: 1.0x to 2.5x of FTE costs
+- Aggressive: 2.0x to 3.0x of FTE costs
+
+**Check these inputs:**
+- Are your improvement percentages too optimistic?
+- Are you double-counting benefits?
+- Are your additional benefits (tool savings, etc.) realistic?"""
+        
+        red_flags.append({
+            'type': 'Disproportionately High Benefits',
+            'value': f"{currency_symbol}{total_annual_benefits:,.0f}",
+            'reasoning': reasoning_text,
+            'severity': 'medium'
+        })
+    
+    # Red Flag 4: Extremely low FTE utilization
+    if alert_fte_percentage > 0 and alert_fte_percentage < 0.1:
+        reasoning_text = f"""Your alert management FTEs are only {alert_fte_percentage*100:.1f}% utilized on alerts.
+
+**This suggests:**
+- You may have too many FTEs assigned to alert management
+- Your alert triage time may be underestimated
+- Your alert volume may be underestimated
+
+**Consider:** Are these FTEs doing other work beyond alert triage?"""
+        
+        warnings.append({
+            'type': 'Very Low Alert FTE Utilization',
+            'value': f"{alert_fte_percentage*100:.1f}%",
+            'reasoning': reasoning_text,
+            'severity': 'low'
+        })
+    
+    if incident_fte_percentage > 0 and incident_fte_percentage < 0.1:
+        reasoning_text = f"""Your incident management FTEs are only {incident_fte_percentage*100:.1f}% utilized on incidents.
+
+**This suggests:**
+- You may have too many FTEs assigned to incident management
+- Your incident triage time may be underestimated
+- Your incident volume may be underestimated
+
+**Consider:** Are these FTEs doing other work beyond incident triage?"""
+        
+        warnings.append({
+            'type': 'Very Low Incident FTE Utilization',
+            'value': f"{incident_fte_percentage*100:.1f}%",
+            'reasoning': reasoning_text,
+            'severity': 'low'
+        })
+    
+    # Red Flag 5: Unrealistic alert/incident ratios
+    if alert_volume > 0 and incident_volume > 0:
+        alert_to_incident_ratio = alert_volume / incident_volume
+        if alert_to_incident_ratio < 2:
+            reasoning_text = f"""Your alert-to-incident ratio is {alert_to_incident_ratio:.1f}:1, which is quite low.
+
+**Typical ratios:**
+- Well-tuned environments: 10:1 to 50:1
+- Average environments: 5:1 to 20:1
+- Noisy environments: 100:1 to 1000:1
+
+**Your numbers:**
+- Alerts: {alert_volume:,}
+- Incidents: {incident_volume:,}
+
+**This could indicate:**
+- Your alert definition may actually be incidents
+- Your environment is extremely well-tuned
+- There may be a data collection issue"""
+            
+            warnings.append({
+                'type': 'Unusual Alert-to-Incident Ratio',
+                'value': f"{alert_to_incident_ratio:.1f}:1",
+                'reasoning': reasoning_text,
+                'severity': 'medium'
+            })
+    
+    return red_flags, warnings
+
+def show_calculation_reasoning_dashboard():
+    """Display a comprehensive dashboard showing calculation reasoning"""
+    st.subheader("🔍 Calculation Reasoning & Data Quality Dashboard")
+    
+    # Run red flag detection
+    red_flags, warnings = detect_calculation_red_flags()
+    
+    # Display overall status
+    if red_flags:
+        st.error(f"⚠️ {len(red_flags)} critical issues detected that may indicate data problems")
+    elif warnings:
+        st.warning(f"⚠️ {len(warnings)} items to review")
+    else:
+        st.success("✅ All calculations appear reasonable")
+    
+    # Create tabs for different aspects
+    reasoning_tabs = st.tabs(["🚨 Red Flags", "⚠️ Warnings", "🧮 Calculation Details", "📊 Data Quality Score"])
+    
+    with reasoning_tabs[0]:
+        if red_flags:
+            for flag in red_flags:
+                if flag['severity'] == 'critical':
+                    st.error(f"🔴 **{flag['type']}**: {flag['value']}")
+                elif flag['severity'] == 'high':
+                    st.error(f"🟠 **{flag['type']}**: {flag['value']}")
+                else:
+                    st.warning(f"🟡 **{flag['type']}**: {flag['value']}")
+                
+                with st.expander(f"See reasoning for {flag['type']}"):
+                    st.markdown(flag['reasoning'])
+        else:
+            st.success("No red flags detected! Your calculations look reasonable.")
+    
+    with reasoning_tabs[1]:
+        if warnings:
+            for warning in warnings:
+                st.warning(f"⚠️ **{warning['type']}**: {warning['value']}")
+                with st.expander(f"See details for {warning['type']}"):
+                    st.markdown(warning['reasoning'])
+        else:
+            st.info("No warnings - your inputs produce consistent calculations.")
+    
+    with reasoning_tabs[2]:
+        show_detailed_calculation_breakdown()
+    
+    with reasoning_tabs[3]:
+        show_data_quality_score(red_flags, warnings)
+
+def show_detailed_calculation_breakdown():
+    """Show step-by-step calculation breakdown"""
+    st.markdown("### Step-by-Step Calculation Breakdown")
+    
+    # Get values from session state
+    cost_per_alert = st.session_state.get('cost_per_alert', 0)
+    cost_per_incident = st.session_state.get('cost_per_incident', 0)
+    alert_volume = st.session_state.get('alert_volume', 0)
+    incident_volume = st.session_state.get('incident_volume', 0)
+    alert_ftes = st.session_state.get('alert_ftes', 0)
+    incident_ftes = st.session_state.get('incident_ftes', 0)
+    avg_alert_triage_time = st.session_state.get('avg_alert_triage_time', 0)
+    avg_incident_triage_time = st.session_state.get('avg_incident_triage_time', 0)
+    avg_alert_fte_salary = st.session_state.get('avg_alert_fte_salary', 0)
+    avg_incident_fte_salary = st.session_state.get('avg_incident_fte_salary', 0)
+    working_hours_per_fte_per_year = st.session_state.get('working_hours_per_fte_per_year', 2000)
+    alert_fte_percentage = st.session_state.get('alert_fte_percentage', 0)
+    incident_fte_percentage = st.session_state.get('incident_fte_percentage', 0)
+    currency_symbol = st.session_state.get('currency', '$')
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("#### 🚨 Alert Cost Calculation")
+        if alert_volume > 0 and alert_ftes > 0:
+            total_alert_time_minutes = alert_volume * avg_alert_triage_time
+            total_alert_time_hours = total_alert_time_minutes / 60
+            total_available_fte_hours = alert_ftes * working_hours_per_fte_per_year
+            total_fte_cost = alert_ftes * avg_alert_fte_salary
+            cost_for_alerts = total_fte_cost * alert_fte_percentage
+            
+            st.markdown(f"""
+**Step 1: Calculate total time needed**
+- {alert_volume:,} alerts × {avg_alert_triage_time} minutes = {total_alert_time_minutes:,.0f} minutes/year
+- Convert to hours: {total_alert_time_hours:,.0f} hours/year
+
+**Step 2: Calculate available FTE capacity**
+- {alert_ftes} FTEs × {working_hours_per_fte_per_year:,.0f} hours = {total_available_fte_hours:,.0f} hours/year
+
+**Step 3: Calculate utilization**
+- {total_alert_time_hours:,.0f} ÷ {total_available_fte_hours:,.0f} = {alert_fte_percentage:.1%}
+
+**Step 4: Calculate cost allocation**
+- Total FTE cost: {alert_ftes} × {currency_symbol}{avg_alert_fte_salary:,.0f} = {currency_symbol}{total_fte_cost:,.0f}
+- Cost for alerts: {currency_symbol}{total_fte_cost:,.0f} × {alert_fte_percentage:.1%} = {currency_symbol}{cost_for_alerts:,.0f}
+
+**Step 5: Cost per alert**
+- {currency_symbol}{cost_for_alerts:,.0f} ÷ {alert_volume:,} = **{currency_symbol}{cost_per_alert:.2f}**
+            """)
+        else:
+            st.info("No alert data provided")
+    
+    with col2:
+        st.markdown("#### 🔧 Incident Cost Calculation")
+        if incident_volume > 0 and incident_ftes > 0:
+            total_incident_time_minutes = incident_volume * avg_incident_triage_time
+            total_incident_time_hours = total_incident_time_minutes / 60
+            total_available_fte_hours = incident_ftes * working_hours_per_fte_per_year
+            total_fte_cost = incident_ftes * avg_incident_fte_salary
+            cost_for_incidents = total_fte_cost * incident_fte_percentage
+            
+            st.markdown(f"""
+**Step 1: Calculate total time needed**
+- {incident_volume:,} incidents × {avg_incident_triage_time} minutes = {total_incident_time_minutes:,.0f} minutes/year
+- Convert to hours: {total_incident_time_hours:,.0f} hours/year
+
+**Step 2: Calculate available FTE capacity**
+- {incident_ftes} FTEs × {working_hours_per_fte_per_year:,.0f} hours = {total_available_fte_hours:,.0f} hours/year
+
+**Step 3: Calculate utilization**
+- {total_incident_time_hours:,.0f} ÷ {total_available_fte_hours:,.0f} = {incident_fte_percentage:.1%}
+
+**Step 4: Calculate cost allocation**
+- Total FTE cost: {incident_ftes} × {currency_symbol}{avg_incident_fte_salary:,.0f} = {currency_symbol}{total_fte_cost:,.0f}
+- Cost for incidents: {currency_symbol}{total_fte_cost:,.0f} × {incident_fte_percentage:.1%} = {currency_symbol}{cost_for_incidents:,.0f}
+
+**Step 5: Cost per incident**
+- {currency_symbol}{cost_for_incidents:,.0f} ÷ {incident_volume:,} = **{currency_symbol}{cost_per_incident:.2f}**
+            """)
+        else:
+            st.info("No incident data provided")
+
+def show_data_quality_score(red_flags, warnings):
+    """Calculate and display a data quality score"""
+    st.markdown("### Data Quality Assessment")
+    
+    # Calculate quality score
+    score = 100
+    score -= len([f for f in red_flags if f['severity'] == 'critical']) * 30
+    score -= len([f for f in red_flags if f['severity'] == 'high']) * 20
+    score -= len([f for f in red_flags if f['severity'] == 'medium']) * 10
+    score -= len(warnings) * 5
+    score = max(0, score)
+    
+    # Display score with color coding
+    if score >= 90:
+        st.success(f"🟢 **Data Quality Score: {score}/100** - Excellent")
+        st.markdown("Your inputs appear consistent and realistic.")
+    elif score >= 70:
+        st.warning(f"🟡 **Data Quality Score: {score}/100** - Good")
+        st.markdown("Your inputs are mostly reasonable with some items to review.")
+    elif score >= 50:
+        st.error(f"🟠 **Data Quality Score: {score}/100** - Needs Review")
+        st.markdown("Several calculation issues detected. Please review your inputs.")
+    else:
+        st.error(f"🔴 **Data Quality Score: {score}/100** - Poor")
+        st.markdown("Major calculation issues detected. Data likely needs significant correction.")
+    
+    # Show recommendations
+    if score < 90:
+        st.markdown("#### 🎯 Recommendations to Improve Data Quality:")
+        recommendations = []
+        
+        if any(f['type'] in ['Over-allocated Alert FTEs', 'Over-allocated Incident FTEs'] for f in red_flags):
+            recommendations.append("• **Fix FTE over-allocation**: Increase FTE count or reduce volume/time estimates")
+        
+        if any(f['type'] in ['High Cost Per Alert', 'High Cost Per Incident'] for f in red_flags):
+            recommendations.append("• **Review cost calculations**: Check if triage times, FTE counts, or salaries are realistic")
+        
+        if any(f['type'] == 'Disproportionately High Benefits' for f in red_flags):
+            recommendations.append("• **Validate benefit assumptions**: Ensure improvement percentages and additional benefits are conservative")
+        
+        if any(w['type'] in ['Very Low Alert FTE Utilization', 'Very Low Incident FTE Utilization'] for w in warnings):
+            recommendations.append("• **Clarify FTE responsibilities**: Ensure FTE counts reflect only time spent on alerts/incidents")
+        
+        for rec in recommendations:
+            st.markdown(rec)
+
+def show_enhanced_validation_section():
+    """Enhanced validation section with detailed reasoning"""
+    st.markdown("---")
+    
+    # Show the calculation reasoning dashboard
+    show_calculation_reasoning_dashboard()
+    
+    # Add quick fix suggestions
+    red_flags, warnings = detect_calculation_red_flags()
+    if red_flags or warnings:
+        with st.expander("🔧 Quick Fix Suggestions"):
+            if any(f['type'] in ['Over-allocated Alert FTEs', 'Over-allocated Incident FTEs'] for f in red_flags):
+                st.markdown("""
+**For FTE over-allocation issues:**
+1. Double-check your volume numbers (are you counting unique alerts/incidents?)
+2. Verify triage time estimates (include only direct triage, not full resolution)
+3. Ensure FTE count reflects dedicated personnel
+4. Consider if some work is automated or handled by different teams
+                """)
+            
+            if any(f['type'] in ['High Cost Per Alert', 'High Cost Per Incident'] for f in red_flags):
+                st.markdown("""
+**For high cost per alert/incident:**
+1. Verify your alert/incident definitions match industry standards
+2. Check if triage time includes only initial triage, not full resolution
+3. Confirm FTE salaries include only base salary + benefits
+4. Ensure volumes are annual figures, not monthly/quarterly
+                """)
+            
+            if any(f['type'] == 'Disproportionately High Benefits' for f in red_flags):
+                st.markdown("""
+**For overly optimistic benefits:**
+1. Use conservative improvement percentages (20-40% rather than 60-80%)
+2. Avoid double-counting benefits across categories
+3. Validate additional benefits with concrete business cases
+4. Consider phased implementation with gradual benefit realization
+                """)
 
 # --- MONTE CARLO SIMULATION FUNCTIONS ---
 
@@ -652,8 +1077,8 @@ def export_to_json(input_values):
     export_data = {
         'metadata': {
             'export_date': datetime.now().isoformat(),
-            'version': '2.1',
-            'tool': 'Enhanced BVA Business Value Assessment with Asset Discovery'
+            'version': '2.2',
+            'tool': 'Enhanced BVA Business Value Assessment with Calculation Reasoning'
         },
         'configuration': input_values
     }
@@ -948,7 +1373,7 @@ def generate_executive_pdf_report(logo_file=None):
         elements.append(Spacer(1, 20))
         
         # Footer
-        footer_text = f"Report generated on {datetime.now().strftime('%B %d, %Y')} using Enhanced Business Value Assessment Tool v2.1"
+        footer_text = f"Report generated on {datetime.now().strftime('%B %d, %Y')} using Enhanced Business Value Assessment Tool v2.2"
         footer_style = ParagraphStyle(
             'Footer',
             parent=styles['Normal'],
@@ -2170,7 +2595,7 @@ for scenario_name, params in scenarios.items():
 
 # --- Main App Layout ---
 st.title(f"Enhanced Business Value Assessment for {solution_name} Implementation")
-st.markdown("This comprehensive tool provides detailed financial analysis with enhanced ROI calculations, risk assessment, and Monte Carlo simulations.")
+st.markdown("This comprehensive tool provides detailed financial analysis with enhanced ROI calculations, calculation reasoning, and data quality validation.")
 
 # Display calculation health check in main area
 calc_issues = check_calculation_health()
@@ -2207,6 +2632,11 @@ if asset_discovery_savings > 0:
     st.subheader("🏗️ Asset Discovery Value")
     
     st.metric("Asset Discovery Automation", f"{currency_symbol}{asset_discovery_savings:,.0f}")
+
+st.markdown("---")
+
+# --- NEW: ENHANCED VALIDATION SECTION WITH CALCULATION REASONING ---
+show_enhanced_validation_section()
 
 st.markdown("---")
 
@@ -2896,19 +3326,20 @@ with st.expander("📊 View Complete Configuration Summary"):
 st.markdown("---")
 col1, col2 = st.columns(2)
 with col1:
-    st.caption("**Enhanced Business Value Assessment Tool v2.1** - Now with Asset Discovery")
+    st.caption("**Enhanced Business Value Assessment Tool v2.2** - Now with Calculation Reasoning")
 with col2:
     st.caption(f"**Analysis generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 # Pro tips
 st.info("💡 **Pro Tips:**")
 st.markdown("""
-- **Asset Discovery Value**: The asset discovery automation capabilities add significant value beyond traditional monitoring
+- **🔍 Calculation Reasoning**: Use the new Data Quality Dashboard to understand exactly how your numbers are calculated
+- **🚨 Red Flags**: Watch for critical issues that indicate data problems - the tool will flag unrealistic calculations
+- **📊 Step-by-Step Breakdown**: See detailed calculation breakdowns to build confidence in your business case
 - **Company Logo**: Upload your logo in the sidebar to create professional PDF executive summaries
-- **PDF Executive Summary**: Generate comprehensive reports for stakeholders and executives
 - **Interactive Calculator**: Test different scenarios to understand sensitivity to key assumptions
-- **Monte Carlo Simulation**: Run risk analysis to see probability distributions of outcomes
 - **Export/Import**: Save configurations for future reference or stakeholder sharing
 """)
 
-st.success("🎯 **Latest Enhancement**: This tool now includes Asset Discovery automation value streams, providing a comprehensive view of AIOPs business value including IT asset automation processes.")
+st.success("🎯 **Latest Enhancement**: This tool now includes advanced calculation reasoning and red flag detection to help you identify when customer data doesn't make sense, ensuring more accurate and credible business value assessments.")
+
