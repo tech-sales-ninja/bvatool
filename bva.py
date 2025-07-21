@@ -1,5 +1,4 @@
-# Designed by N.Pearson
-# v2.2 - Enhanced with Calculation Reasoning and Red Flag Detection
+# v2.4 - Enhanced with Legal FTE Limits and Constraint-Aware Calculations
 
 import streamlit as st
 import numpy as np
@@ -37,7 +36,6 @@ def validate_inputs():
     errors = []
     
     # Get values from session state
-    platform_cost = st.session_state.get('platform_cost', 0)
     services_cost = st.session_state.get('services_cost', 0)
     alert_reduction_pct = st.session_state.get('alert_reduction_pct', 0)
     incident_reduction_pct = st.session_state.get('incident_reduction_pct', 0)
@@ -54,9 +52,19 @@ def validate_inputs():
     benefits_ramp_up_months = st.session_state.get('benefits_ramp_up', 3)
     evaluation_years = st.session_state.get('evaluation_years', 3)
     
-    # Check for negative values where they don't make sense
-    if platform_cost < 0:
-        errors.append("Platform cost cannot be negative")
+    # Get legal FTE limits
+    legal_min_alert_ftes = st.session_state.get('legal_min_alert_ftes', 0)
+    legal_min_incident_ftes = st.session_state.get('legal_min_incident_ftes', 0)
+    
+    # Check multi-year platform costs
+    total_platform_cost = 0
+    for year in range(1, evaluation_years + 1):
+        year_cost = st.session_state.get(f'platform_cost_year_{year}', 0)
+        total_platform_cost += year_cost
+        if year_cost < 0:
+            errors.append(f"Year {year} platform cost cannot be negative")
+    
+    # Check for services cost
     if services_cost < 0:
         errors.append("Services cost cannot be negative")
     
@@ -69,8 +77,8 @@ def validate_inputs():
         warnings.append("MTTR improvement >80% may be unrealistic")
     
     # Check for missing critical inputs
-    if platform_cost == 0 and services_cost == 0:
-        warnings.append("Both platform and services costs are zero - is this correct?")
+    if total_platform_cost == 0 and services_cost == 0:
+        warnings.append("All platform and services costs are zero - is this correct?")
     
     # Check for inconsistent FTE data
     if alert_volume > 0 and alert_ftes == 0:
@@ -100,6 +108,19 @@ def validate_inputs():
     if billing_start_month > implementation_delay_months + benefits_ramp_up_months:
         warnings.append(f"Billing starts (month {billing_start_month}) after full benefits realization (month {implementation_delay_months + benefits_ramp_up_months}) - unusual scenario")
     
+    # NEW: Legal FTE limit validations
+    if legal_min_alert_ftes > alert_ftes and alert_ftes > 0:
+        warnings.append(f"Legal minimum alert FTEs ({legal_min_alert_ftes}) exceeds current FTEs ({alert_ftes})")
+    
+    if legal_min_incident_ftes > incident_ftes and incident_ftes > 0:
+        warnings.append(f"Legal minimum incident FTEs ({legal_min_incident_ftes}) exceeds current FTEs ({incident_ftes})")
+    
+    if legal_min_alert_ftes < 0:
+        errors.append("Legal minimum alert FTEs cannot be negative")
+    
+    if legal_min_incident_ftes < 0:
+        errors.append("Legal minimum incident FTEs cannot be negative")
+    
     return warnings, errors
 
 def check_calculation_health():
@@ -127,6 +148,149 @@ def check_calculation_health():
         issues.append("Total annual benefits exceed 2x total FTE costs - please verify assumptions")
     
     return issues
+
+# --- NEW: LEGAL FTE CONSTRAINT FUNCTIONS ---
+
+def check_legal_fte_constraints():
+    """Check if efficiency gains would violate legal FTE minimums and provide guidance"""
+    constraints = []
+    
+    # Get values from session state
+    alert_ftes = st.session_state.get('alert_ftes', 0)
+    incident_ftes = st.session_state.get('incident_ftes', 0)
+    legal_min_alert_ftes = st.session_state.get('legal_min_alert_ftes', 0)
+    legal_min_incident_ftes = st.session_state.get('legal_min_incident_ftes', 0)
+    alert_fte_percentage = st.session_state.get('alert_fte_percentage', 0)
+    incident_fte_percentage = st.session_state.get('incident_fte_percentage', 0)
+    alert_reduction_pct = st.session_state.get('alert_reduction_pct', 0)
+    incident_reduction_pct = st.session_state.get('incident_reduction_pct', 0)
+    alert_triage_time_saved_pct = st.session_state.get('alert_triage_time_saved_pct', 0)
+    incident_triage_time_savings_pct = st.session_state.get('incident_triage_time_savings_pct', 0)
+    
+    # Calculate theoretical FTE requirements after improvements for alerts
+    if alert_ftes > 0 and legal_min_alert_ftes > 0:
+        # Calculate what FTE utilization would be after improvements
+        remaining_alert_volume_factor = (100 - alert_reduction_pct) / 100
+        remaining_triage_time_factor = (100 - alert_triage_time_saved_pct) / 100
+        post_improvement_alert_utilization = alert_fte_percentage * remaining_alert_volume_factor * remaining_triage_time_factor
+        
+        # Calculate theoretical FTEs needed based on improved efficiency
+        theoretical_alert_ftes_needed = post_improvement_alert_utilization * alert_ftes
+        
+        if theoretical_alert_ftes_needed < legal_min_alert_ftes:
+            efficiency_gain_limited = (alert_ftes - legal_min_alert_ftes) / alert_ftes if alert_ftes > 0 else 0
+            constraints.append({
+                'type': 'Alert FTE Legal Constraint',
+                'current_ftes': alert_ftes,
+                'theoretical_ftes_needed': theoretical_alert_ftes_needed,
+                'legal_minimum': legal_min_alert_ftes,
+                'max_efficiency_gain': efficiency_gain_limited * 100,
+                'constraint_active': True,
+                'excess_capacity_created': legal_min_alert_ftes - theoretical_alert_ftes_needed
+            })
+        else:
+            constraints.append({
+                'type': 'Alert FTE Legal Constraint',
+                'current_ftes': alert_ftes,
+                'theoretical_ftes_needed': theoretical_alert_ftes_needed,
+                'legal_minimum': legal_min_alert_ftes,
+                'constraint_active': False,
+                'excess_capacity_created': 0
+            })
+    
+    # Calculate theoretical FTE requirements after improvements for incidents
+    if incident_ftes > 0 and legal_min_incident_ftes > 0:
+        # Calculate what FTE utilization would be after improvements
+        remaining_incident_volume_factor = (100 - incident_reduction_pct) / 100
+        remaining_triage_time_factor = (100 - incident_triage_time_savings_pct) / 100
+        post_improvement_incident_utilization = incident_fte_percentage * remaining_incident_volume_factor * remaining_triage_time_factor
+        
+        # Calculate theoretical FTEs needed based on improved efficiency
+        theoretical_incident_ftes_needed = post_improvement_incident_utilization * incident_ftes
+        
+        if theoretical_incident_ftes_needed < legal_min_incident_ftes:
+            efficiency_gain_limited = (incident_ftes - legal_min_incident_ftes) / incident_ftes if incident_ftes > 0 else 0
+            constraints.append({
+                'type': 'Incident FTE Legal Constraint',
+                'current_ftes': incident_ftes,
+                'theoretical_ftes_needed': theoretical_incident_ftes_needed,
+                'legal_minimum': legal_min_incident_ftes,
+                'max_efficiency_gain': efficiency_gain_limited * 100,
+                'constraint_active': True,
+                'excess_capacity_created': legal_min_incident_ftes - theoretical_incident_ftes_needed
+            })
+        else:
+            constraints.append({
+                'type': 'Incident FTE Legal Constraint',
+                'current_ftes': incident_ftes,
+                'theoretical_ftes_needed': theoretical_incident_ftes_needed,
+                'legal_minimum': legal_min_incident_ftes,
+                'constraint_active': False,
+                'excess_capacity_created': 0
+            })
+    
+    return constraints
+
+def calculate_constrained_fte_benefits():
+    """Calculate benefits adjusted for legal FTE constraints"""
+    constraints = check_legal_fte_constraints()
+    
+    # Get original savings
+    original_alert_reduction_savings = st.session_state.get('alert_reduction_savings', 0)
+    original_alert_triage_savings = st.session_state.get('alert_triage_savings', 0)
+    original_incident_reduction_savings = st.session_state.get('incident_reduction_savings', 0)
+    original_incident_triage_savings = st.session_state.get('incident_triage_savings', 0)
+    
+    # Get FTE salaries for reallocation value
+    avg_alert_fte_salary = st.session_state.get('avg_alert_fte_salary', 0)
+    avg_incident_fte_salary = st.session_state.get('avg_incident_fte_salary', 0)
+    
+    constrained_benefits = {
+        'alert_direct_savings': original_alert_reduction_savings + original_alert_triage_savings,
+        'incident_direct_savings': original_incident_reduction_savings + original_incident_triage_savings,
+        'alert_reallocation_value': 0,
+        'incident_reallocation_value': 0,
+        'total_constrained_savings': 0,
+        'constraints_active': False
+    }
+    
+    for constraint in constraints:
+        if constraint['constraint_active']:
+            constrained_benefits['constraints_active'] = True
+            
+            if constraint['type'] == 'Alert FTE Legal Constraint':
+                # Some of the time savings become reallocation value rather than direct cost savings
+                excess_capacity = constraint['excess_capacity_created']
+                constrained_benefits['alert_reallocation_value'] = excess_capacity * avg_alert_fte_salary
+                
+                # Direct savings are limited to the FTEs that can actually be reduced
+                max_reducible_ftes = constraint['current_ftes'] - constraint['legal_minimum']
+                if constraint['current_ftes'] > 0:
+                    reduction_factor = max_reducible_ftes / constraint['current_ftes']
+                    constrained_benefits['alert_direct_savings'] = (original_alert_reduction_savings + original_alert_triage_savings) * reduction_factor
+            
+            elif constraint['type'] == 'Incident FTE Legal Constraint':
+                # Some of the time savings become reallocation value rather than direct cost savings
+                excess_capacity = constraint['excess_capacity_created']
+                constrained_benefits['incident_reallocation_value'] = excess_capacity * avg_incident_fte_salary
+                
+                # Direct savings are limited to the FTEs that can actually be reduced
+                max_reducible_ftes = constraint['current_ftes'] - constraint['legal_minimum']
+                if constraint['current_ftes'] > 0:
+                    reduction_factor = max_reducible_ftes / constraint['current_ftes']
+                    constrained_benefits['incident_direct_savings'] = (original_incident_reduction_savings + original_incident_triage_savings) * reduction_factor
+    
+    constrained_benefits['total_constrained_savings'] = (
+        constrained_benefits['alert_direct_savings'] + 
+        constrained_benefits['incident_direct_savings']
+    )
+    
+    constrained_benefits['total_reallocation_value'] = (
+        constrained_benefits['alert_reallocation_value'] + 
+        constrained_benefits['incident_reallocation_value']
+    )
+    
+    return constrained_benefits
 
 # --- NEW: RED FLAG DETECTION FUNCTIONS ---
 
@@ -355,7 +519,7 @@ def show_calculation_reasoning_dashboard():
         st.success("✅ All calculations appear reasonable")
     
     # Create tabs for different aspects
-    reasoning_tabs = st.tabs(["🚨 Red Flags", "⚠️ Warnings", "🧮 Calculation Details", "📊 Data Quality Score"])
+    reasoning_tabs = st.tabs(["🚨 Red Flags", "⚠️ Warnings", "🧮 Calculation Details", "📊 Data Quality Score", "⚖️ Legal FTE Constraints"])
     
     with reasoning_tabs[0]:
         if red_flags:
@@ -386,6 +550,102 @@ def show_calculation_reasoning_dashboard():
     
     with reasoning_tabs[3]:
         show_data_quality_score(red_flags, warnings)
+    
+    with reasoning_tabs[4]:
+        show_legal_fte_constraints_analysis()
+
+def show_legal_fte_constraints_analysis():
+    """Display analysis of legal FTE constraints and their impact"""
+    st.markdown("### ⚖️ Legal FTE Constraints Analysis")
+    
+    # Get constraint analysis
+    constraints = check_legal_fte_constraints()
+    constrained_benefits = calculate_constrained_fte_benefits()
+    
+    if not constraints:
+        st.info("No legal FTE constraints configured. Use the sidebar to set minimum required FTEs for compliance.")
+        return
+    
+    # Display constraint status
+    constraints_active = any(c['constraint_active'] for c in constraints)
+    
+    if constraints_active:
+        st.warning("⚖️ **Legal FTE constraints are affecting your benefit calculations**")
+    else:
+        st.success("✅ Legal FTE constraints are not currently limiting your efficiency gains")
+    
+    # Show detailed constraint analysis
+    for constraint in constraints:
+        if constraint['type'] == 'Alert FTE Legal Constraint':
+            st.markdown("#### 🚨 Alert Management FTE Constraints")
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Current Alert FTEs", int(constraint['current_ftes']))
+            with col2:
+                st.metric("Legal Minimum Required", int(constraint['legal_minimum']))
+            with col3:
+                st.metric("Theoretical FTEs Needed", f"{constraint['theoretical_ftes_needed']:.1f}")
+            
+            if constraint['constraint_active']:
+                st.error(f"⚠️ **Constraint Active**: Efficiency gains would require {constraint['theoretical_ftes_needed']:.1f} FTEs, but you must maintain {constraint['legal_minimum']} FTEs minimum.")
+                
+                currency_symbol = st.session_state.get('currency', '$')
+                st.markdown(f"""
+                **Impact on Benefits:**
+                - **Direct Cost Savings**: {currency_symbol}{constrained_benefits['alert_direct_savings']:,.0f} (limited by legal minimum)
+                - **Reallocation Value**: {currency_symbol}{constrained_benefits['alert_reallocation_value']:,.0f} (excess capacity for other work)
+                - **Excess Capacity Created**: {constraint['excess_capacity_created']:.1f} FTE-equivalent of freed time
+                """)
+            else:
+                st.success("✅ No constraint impact - efficiency gains don't reduce FTEs below legal minimum")
+        
+        elif constraint['type'] == 'Incident FTE Legal Constraint':
+            st.markdown("#### 🔧 Incident Management FTE Constraints")
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Current Incident FTEs", int(constraint['current_ftes']))
+            with col2:
+                st.metric("Legal Minimum Required", int(constraint['legal_minimum']))
+            with col3:
+                st.metric("Theoretical FTEs Needed", f"{constraint['theoretical_ftes_needed']:.1f}")
+            
+            if constraint['constraint_active']:
+                st.error(f"⚠️ **Constraint Active**: Efficiency gains would require {constraint['theoretical_ftes_needed']:.1f} FTEs, but you must maintain {constraint['legal_minimum']} FTEs minimum.")
+                
+                currency_symbol = st.session_state.get('currency', '$')
+                st.markdown(f"""
+                **Impact on Benefits:**
+                - **Direct Cost Savings**: {currency_symbol}{constrained_benefits['incident_direct_savings']:,.0f} (limited by legal minimum)
+                - **Reallocation Value**: {currency_symbol}{constrained_benefits['incident_reallocation_value']:,.0f} (excess capacity for other work)
+                - **Excess Capacity Created**: {constraint['excess_capacity_created']:.1f} FTE-equivalent of freed time
+                """)
+            else:
+                st.success("✅ No constraint impact - efficiency gains don't reduce FTEs below legal minimum")
+    
+    # Summary of constraint impact
+    if constraints_active:
+        st.markdown("---")
+        st.markdown("#### 📊 Constraint Impact Summary")
+        
+        currency_symbol = st.session_state.get('currency', '$')
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Constrained Direct Savings", f"{currency_symbol}{constrained_benefits['total_constrained_savings']:,.0f}")
+        with col2:
+            st.metric("Reallocation Value", f"{currency_symbol}{constrained_benefits['total_reallocation_value']:,.0f}")
+        with col3:
+            total_value = constrained_benefits['total_constrained_savings'] + constrained_benefits['total_reallocation_value']
+            st.metric("Total Value (Direct + Reallocation)", f"{currency_symbol}{total_value:,.0f}")
+        
+        st.markdown("""
+        **Understanding the Impact:**
+        - **Direct Savings**: Actual cost reductions from FTEs that can be eliminated
+        - **Reallocation Value**: Value from freed-up time that can be used for higher-value work
+        - **Legal constraints don't eliminate benefits** - they change how value is realized
+        """)
 
 def show_detailed_calculation_breakdown():
     """Show step-by-step calculation breakdown"""
@@ -562,10 +822,15 @@ def run_monte_carlo_simulation(n_simulations=1000):
     incident_reduction_pct = st.session_state.get('incident_reduction_pct', 0)
     mttr_improvement_pct = st.session_state.get('mttr_improvement_pct', 0)
     implementation_delay_months = st.session_state.get('implementation_delay', 6)
-    platform_cost = st.session_state.get('platform_cost', 0)
     services_cost = st.session_state.get('services_cost', 0)
     evaluation_years = st.session_state.get('evaluation_years', 3)
     discount_rate = st.session_state.get('discount_rate', 10) / 100
+    
+    # Get multi-year platform costs
+    platform_costs_by_year = []
+    for year in range(1, evaluation_years + 1):
+        year_cost = st.session_state.get(f'platform_cost_year_{year}', 0)
+        platform_costs_by_year.append(year_cost)
     
     # Get other required values
     alert_volume = st.session_state.get('alert_volume', 0)
@@ -594,8 +859,13 @@ def run_monte_carlo_simulation(n_simulations=1000):
         sim_incident_reduction = max(0, min(100, np.random.normal(incident_reduction_pct, incident_reduction_pct * 0.2)))
         sim_mttr_improvement = max(0, min(100, np.random.normal(mttr_improvement_pct, mttr_improvement_pct * 0.2)))
         sim_implementation_delay = max(1, np.random.normal(implementation_delay_months, implementation_delay_months * 0.15))
-        sim_platform_cost = max(0, np.random.normal(platform_cost, platform_cost * 0.1))
         sim_services_cost = max(0, np.random.normal(services_cost, services_cost * 0.15))
+        
+        # Vary platform costs by year
+        sim_platform_costs = []
+        for year_cost in platform_costs_by_year:
+            sim_year_cost = max(0, np.random.normal(year_cost, year_cost * 0.1)) if year_cost > 0 else 0
+            sim_platform_costs.append(sim_year_cost)
         
         # Calculate benefits with simulated values
         sim_alert_savings = (alert_volume * sim_alert_reduction / 100) * cost_per_alert
@@ -610,13 +880,13 @@ def run_monte_carlo_simulation(n_simulations=1000):
         sim_cash_flows = []
         for year in range(1, evaluation_years + 1):
             year_benefits = sim_total_benefits
-            year_platform_cost = sim_platform_cost
+            year_platform_cost = sim_platform_costs[year-1] if year-1 < len(sim_platform_costs) else 0
             year_services_cost = sim_services_cost if year == 1 else 0
             year_net_cash_flow = year_benefits - year_platform_cost - year_services_cost
             sim_cash_flows.append(year_net_cash_flow)
         
         sim_npv = sum([cf / ((1 + discount_rate) ** (i+1)) for i, cf in enumerate(sim_cash_flows)])
-        sim_total_costs = sim_platform_cost * evaluation_years + sim_services_cost
+        sim_total_costs = sum(sim_platform_costs) + sim_services_cost
         sim_roi = (sim_npv / sim_total_costs * 100) if sim_total_costs > 0 else 0
         
         roi_results.append(sim_roi)
@@ -628,9 +898,11 @@ def calculate_break_even_scenarios():
     """Calculate various break-even scenarios"""
     break_even_scenarios = {}
     
-    platform_cost = st.session_state.get('platform_cost', 0)
-    services_cost = st.session_state.get('services_cost', 0)
+    # Get total platform cost across all years
     evaluation_years = st.session_state.get('evaluation_years', 3)
+    total_platform_cost = sum([st.session_state.get(f'platform_cost_year_{year}', 0) for year in range(1, evaluation_years + 1)])
+    services_cost = st.session_state.get('services_cost', 0)
+    
     alert_volume = st.session_state.get('alert_volume', 0)
     incident_volume = st.session_state.get('incident_volume', 0)
     major_incident_volume = st.session_state.get('major_incident_volume', 0)
@@ -639,7 +911,7 @@ def calculate_break_even_scenarios():
     avg_mttr_hours = st.session_state.get('avg_mttr_hours', 0)
     avg_major_incident_cost = st.session_state.get('avg_major_incident_cost', 0)
     
-    total_costs_annual = platform_cost + (services_cost / evaluation_years)
+    total_costs_annual = (total_platform_cost + services_cost) / evaluation_years
     
     # Break-even alert reduction percentage
     if cost_per_alert > 0 and alert_volume > 0:
@@ -787,10 +1059,14 @@ def create_cost_vs_benefit_waterfall(currency_symbol):
     revenue_growth = st.session_state.get('revenue_growth', 0)
     capex_savings = st.session_state.get('capex_savings', 0)
     opex_savings = st.session_state.get('opex_savings', 0)
-    platform_cost = st.session_state.get('platform_cost', 0)
     services_cost = st.session_state.get('services_cost', 0)
     # Asset management savings (no CMDB)
     asset_discovery_savings = st.session_state.get('asset_discovery_savings', 0)
+    
+    # Get average platform cost across years
+    evaluation_years = st.session_state.get('evaluation_years', 3)
+    total_platform_cost = sum([st.session_state.get(f'platform_cost_year_{year}', 0) for year in range(1, evaluation_years + 1)])
+    avg_annual_platform_cost = total_platform_cost / evaluation_years if evaluation_years > 0 else 0
     
     # Prepare data for waterfall chart
     categories = ['Starting Point', 'Alert Savings', 'Incident Savings', 'MTTR Savings', 
@@ -802,7 +1078,7 @@ def create_cost_vs_benefit_waterfall(currency_symbol):
              major_incident_savings,
              asset_discovery_savings,
              tool_savings + people_cost_per_year + fte_avoidance + sla_penalty_avoidance + revenue_growth + capex_savings + opex_savings,
-             -platform_cost,
+             -avg_annual_platform_cost,
              -services_cost,
              0]  # Will be calculated
     
@@ -878,7 +1154,10 @@ def get_all_input_values():
     """Collect all input values from the current session state"""
     input_values = {}
     
-    # Get all the input keys from your existing inputs (removed compliance fields)
+    # Get evaluation years first for dynamic platform cost keys
+    evaluation_years = st.session_state.get('evaluation_years', 3)
+    
+    # Get all the input keys from your existing inputs (added legal FTE limit fields)
     input_keys = [
         # Basic Configuration
         'solution_name', 'industry_template', 'currency', 
@@ -904,16 +1183,23 @@ def get_all_input_values():
         'asset_volume', 'manual_discovery_cycles_per_year', 'hours_per_discovery_cycle',
         'asset_management_ftes', 'avg_asset_mgmt_fte_salary', 'asset_discovery_automation_pct',
         
+        # Legal FTE Constraints - NEW
+        'legal_min_alert_ftes', 'legal_min_incident_ftes',
+        
         # Additional Benefits
         'tool_savings', 'people_efficiency', 'fte_avoidance', 'sla_penalty', 
         'revenue_growth', 'capex_savings', 'opex_savings',
         
         # Costs
-        'platform_cost', 'services_cost',
+        'services_cost',
         
         # Financial Settings
         'evaluation_years', 'discount_rate'
     ]
+    
+    # Add dynamic platform cost keys based on evaluation years
+    for year in range(1, evaluation_years + 1):
+        input_keys.append(f'platform_cost_year_{year}')
     
     # Collect values from session state
     for key in input_keys:
@@ -961,6 +1247,9 @@ def get_default_value(key):
         'asset_management_ftes': 0,
         'avg_asset_mgmt_fte_salary': 0,
         'asset_discovery_automation_pct': 0,
+        # Legal FTE constraints - NEW
+        'legal_min_alert_ftes': 0,
+        'legal_min_incident_ftes': 0,
         'tool_savings': 0,
         'people_efficiency': 0,
         'fte_avoidance': 0,
@@ -968,7 +1257,12 @@ def get_default_value(key):
         'revenue_growth': 0,
         'capex_savings': 0,
         'opex_savings': 0,
-        'platform_cost': 0,
+        # Multi-year platform costs
+        'platform_cost_year_1': 0,
+        'platform_cost_year_2': 0,
+        'platform_cost_year_3': 0,
+        'platform_cost_year_4': 0,
+        'platform_cost_year_5': 0,
         'services_cost': 0,
         'evaluation_years': 3,
         'discount_rate': 10
@@ -983,7 +1277,7 @@ def export_to_csv(input_values):
     # Write header
     writer.writerow(['Parameter', 'Value', 'Description'])
     
-    # Define parameter descriptions for better readability (removed compliance descriptions)
+    # Define parameter descriptions for better readability (added legal FTE descriptions)
     descriptions = {
         'solution_name': 'Solution Name',
         'industry_template': 'Industry Template',
@@ -1018,6 +1312,9 @@ def export_to_csv(input_values):
         'asset_management_ftes': 'Total FTEs Managing IT Assets',
         'avg_asset_mgmt_fte_salary': 'Average Annual Salary per Asset Management FTE',
         'asset_discovery_automation_pct': '% Asset Discovery Process Automated',
+        # Legal FTE constraints - NEW
+        'legal_min_alert_ftes': 'Legal Minimum Alert Management FTEs',
+        'legal_min_incident_ftes': 'Legal Minimum Incident Management FTEs',
         'tool_savings': 'Tool Consolidation Savings',
         'people_efficiency': 'People Efficiency Gains',
         'fte_avoidance': 'FTE Avoidance (annualized value)',
@@ -1025,7 +1322,12 @@ def export_to_csv(input_values):
         'revenue_growth': 'Revenue Growth',
         'capex_savings': 'Capital Expenditure Savings',
         'opex_savings': 'Operational Expenditure Savings',
-        'platform_cost': 'Annual Subscription Cost',
+        # Multi-year platform costs
+        'platform_cost_year_1': 'Platform Cost Year 1',
+        'platform_cost_year_2': 'Platform Cost Year 2',
+        'platform_cost_year_3': 'Platform Cost Year 3',
+        'platform_cost_year_4': 'Platform Cost Year 4',
+        'platform_cost_year_5': 'Platform Cost Year 5',
         'services_cost': 'Implementation & Services (One-Time)',
         'evaluation_years': 'Evaluation Period (Years)',
         'discount_rate': 'NPV Discount Rate (%)'
@@ -1077,8 +1379,8 @@ def export_to_json(input_values):
     export_data = {
         'metadata': {
             'export_date': datetime.now().isoformat(),
-            'version': '2.2',
-            'tool': 'Enhanced BVA Business Value Assessment with Calculation Reasoning'
+            'version': '2.4',
+            'tool': 'Enhanced BVA Business Value Assessment with Legal FTE Limits'
         },
         'configuration': input_values
     }
@@ -1137,8 +1439,9 @@ def generate_executive_pdf_report(logo_file=None):
         holiday_sick_days = st.session_state.get('holiday_sick_days', 25)
         working_hours_fte_year = ((weeks_per_year * days_per_week) - holiday_sick_days) * hours_per_day
         
-        # Get costs
-        platform_cost = st.session_state.get('platform_cost', 0)
+        # Get costs - multi-year platform costs
+        platform_costs_by_year = [st.session_state.get(f'platform_cost_year_{year}', 0) for year in range(1, evaluation_years + 1)]
+        total_platform_cost = sum(platform_costs_by_year)
         services_cost = st.session_state.get('services_cost', 0)
         
         # Get calculated benefits from session state
@@ -1160,13 +1463,19 @@ def generate_executive_pdf_report(logo_file=None):
         # Asset management benefits (no CMDB)
         asset_discovery_savings = st.session_state.get('asset_discovery_savings', 0)
         
+        # Get legal constraints info - NEW
+        legal_min_alert_ftes = st.session_state.get('legal_min_alert_ftes', 0)
+        legal_min_incident_ftes = st.session_state.get('legal_min_incident_ftes', 0)
+        constraints = check_legal_fte_constraints()
+        constrained_benefits = calculate_constrained_fte_benefits()
+        
         # Get scenario results from session state
         scenario_results_from_state = st.session_state.get('scenario_results', None)
         if scenario_results_from_state:
             scenario_results = scenario_results_from_state
         else:
             # Create basic scenario results if not available
-            total_investment = platform_cost * evaluation_years + services_cost
+            total_investment = total_platform_cost + services_cost
             basic_npv = total_annual_benefits * evaluation_years - total_investment
             basic_roi = (basic_npv / total_investment) if total_investment > 0 else 0
             
@@ -1251,6 +1560,18 @@ def generate_executive_pdf_report(logo_file=None):
         
         expected_result = scenario_results['Expected']
         total_asset_savings = asset_discovery_savings
+        
+        # Add legal constraints summary if applicable - NEW
+        legal_constraints_text = ""
+        if any(c['constraint_active'] for c in constraints):
+            legal_constraints_text = f"""
+            <br/><br/>
+            <b>Legal FTE Constraints:</b> This analysis accounts for regulatory requirements maintaining minimum 
+            staffing levels ({legal_min_alert_ftes} alert FTEs, {legal_min_incident_ftes} incident FTEs). 
+            While efficiency gains are constrained, {currency_symbol}{constrained_benefits['total_reallocation_value']:,.0f} 
+            in reallocation value is created from freed capacity for higher-value work.
+            """
+        
         exec_summary = f"""
         This comprehensive business value assessment analyzes the financial impact of implementing {solution_name} 
         over a {evaluation_years}-year period. Our analysis shows a projected NPV of {currency_symbol}{expected_result['npv']:,.0f} 
@@ -1264,6 +1585,7 @@ def generate_executive_pdf_report(logo_file=None):
         <br/><br/>
         <b>Asset Discovery Value:</b> The solution will also automate asset discovery processes, 
         delivering an additional {currency_symbol}{total_asset_savings:,.0f} in annual value through improved IT asset management.
+        {legal_constraints_text}
         
         <br/><br/>
         <b>Key Recommendation:</b> Proceed with implementation based on strong financial justification and strategic benefits.
@@ -1274,7 +1596,7 @@ def generate_executive_pdf_report(logo_file=None):
         # Key Financial Metrics
         elements.append(Paragraph("Key Financial Metrics", heading_style))
         
-        total_investment = platform_cost * evaluation_years + services_cost
+        total_investment = total_platform_cost + services_cost
         metrics_data = [
             ['Metric', 'Value', 'Description'],
             ['Net Present Value (NPV)', f'{currency_symbol}{expected_result["npv"]:,.0f}', 'Total value in current dollars'],
@@ -1284,6 +1606,11 @@ def generate_executive_pdf_report(logo_file=None):
             ['Total Investment', f'{currency_symbol}{total_investment:,.0f}', 'Total cost over evaluation period'],
             ['Equivalent FTEs Gained', f'{equivalent_ftes:.1f} FTEs', 'Strategic capacity from savings']
         ]
+        
+        # Add legal constraint metrics if applicable - NEW
+        if constrained_benefits['constraints_active']:
+            metrics_data.append(['Constrained Direct Savings', f'{currency_symbol}{constrained_benefits["total_constrained_savings"]:,.0f}', 'Cost savings within legal limits'])
+            metrics_data.append(['Reallocation Value', f'{currency_symbol}{constrained_benefits["total_reallocation_value"]:,.0f}', 'Value from freed capacity'])
         
         metrics_table = Table(metrics_data, colWidths=[2.2*inch, 1.8*inch, 2.5*inch])
         metrics_table.setStyle(TableStyle([
@@ -1299,6 +1626,91 @@ def generate_executive_pdf_report(logo_file=None):
             ('GRID', (0, 0), (-1, -1), 1, colors.black)
         ]))
         elements.append(metrics_table)
+        elements.append(Spacer(1, 20))
+        
+        # Legal FTE Constraints Section - NEW
+        if any(c['constraint_active'] for c in constraints):
+            elements.append(Paragraph("Legal FTE Constraints Impact", heading_style))
+            
+            constraint_data = [['Constraint Type', 'Current FTEs', 'Legal Minimum', 'Theoretical Need', 'Impact']]
+            for constraint in constraints:
+                if constraint['constraint_active']:
+                    if constraint['type'] == 'Alert FTE Legal Constraint':
+                        constraint_data.append([
+                            'Alert Management',
+                            str(int(constraint['current_ftes'])),
+                            str(int(constraint['legal_minimum'])),
+                            f"{constraint['theoretical_ftes_needed']:.1f}",
+                            f"Excess capacity: {constraint['excess_capacity_created']:.1f} FTEs"
+                        ])
+                    elif constraint['type'] == 'Incident FTE Legal Constraint':
+                        constraint_data.append([
+                            'Incident Management',
+                            str(int(constraint['current_ftes'])),
+                            str(int(constraint['legal_minimum'])),
+                            f"{constraint['theoretical_ftes_needed']:.1f}",
+                            f"Excess capacity: {constraint['excess_capacity_created']:.1f} FTEs"
+                        ])
+            
+            constraint_table = Table(constraint_data, colWidths=[1.5*inch, 1*inch, 1*inch, 1.2*inch, 1.8*inch])
+            constraint_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.darkorange),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 9),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.lightyellow),
+                ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+                ('FONTSIZE', (0, 1), (-1, -1), 8),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black)
+            ]))
+            elements.append(constraint_table)
+            elements.append(Spacer(1, 20))
+        
+        # Multi-Year Cost Breakdown
+        elements.append(Paragraph("Multi-Year Cost Structure", heading_style))
+        
+        cost_data = [['Year', 'Platform Cost', 'Description']]
+        for year in range(1, evaluation_years + 1):
+            year_cost = platform_costs_by_year[year-1] if year-1 < len(platform_costs_by_year) else 0
+            cost_data.append([
+                f'Year {year}',
+                f'{currency_symbol}{year_cost:,.0f}',
+                f'Annual subscription cost for year {year}'
+            ])
+        
+        # Add totals row
+        cost_data.append([
+            'Total Platform',
+            f'{currency_symbol}{total_platform_cost:,.0f}',
+            f'Total platform investment over {evaluation_years} years'
+        ])
+        cost_data.append([
+            'Services (One-time)',
+            f'{currency_symbol}{services_cost:,.0f}',
+            'Implementation and professional services'
+        ])
+        cost_data.append([
+            'Total Investment',
+            f'{currency_symbol}{total_investment:,.0f}',
+            'Complete total cost of ownership'
+        ])
+        
+        cost_table = Table(cost_data, colWidths=[1.2*inch, 1.5*inch, 3.8*inch])
+        cost_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.darkgreen),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 9),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.lightgrey),
+            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 1), (-1, -1), 8),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        elements.append(cost_table)
         elements.append(Spacer(1, 20))
         
         # Scenario Analysis
@@ -1373,7 +1785,7 @@ def generate_executive_pdf_report(logo_file=None):
         elements.append(Spacer(1, 20))
         
         # Footer
-        footer_text = f"Report generated on {datetime.now().strftime('%B %d, %Y')} using Enhanced Business Value Assessment Tool v2.2"
+        footer_text = f"Report generated on {datetime.now().strftime('%B %d, %Y')} using Enhanced Business Value Assessment Tool v2.4"
         footer_style = ParagraphStyle(
             'Footer',
             parent=styles['Normal'],
@@ -1484,10 +1896,16 @@ def calculate_scenario_results(benefits_multiplier, implementation_delay_multipl
     total_annual_benefits = st.session_state.get('total_annual_benefits', 100000)
     implementation_delay_months = st.session_state.get('implementation_delay', 6)
     benefits_ramp_up_months = st.session_state.get('benefits_ramp_up', 3)
-    platform_cost = st.session_state.get('platform_cost', 0)
     services_cost = st.session_state.get('services_cost', 0)
     evaluation_years = st.session_state.get('evaluation_years', 3)
+    # FIXED: Properly convert discount rate from percentage to decimal
     discount_rate = st.session_state.get('discount_rate', 10) / 100
+    
+    # Get multi-year platform costs
+    platform_costs_by_year = []
+    for year in range(1, evaluation_years + 1):
+        year_cost = st.session_state.get(f'platform_cost_year_{year}', 0)
+        platform_costs_by_year.append(year_cost)
     
     # Adjust benefits and timeline
     scenario_benefits = total_annual_benefits * benefits_multiplier
@@ -1514,7 +1932,9 @@ def calculate_scenario_results(benefits_multiplier, implementation_delay_multipl
         avg_cost_factor = np.mean(monthly_cost_factors)
         
         year_benefits = scenario_benefits * avg_benefit_realization_factor
-        year_platform_cost = platform_cost * avg_cost_factor  # Only pay for months when billing is active
+        # Get year-specific platform cost
+        year_platform_cost_base = platform_costs_by_year[year-1] if year-1 < len(platform_costs_by_year) else 0
+        year_platform_cost = year_platform_cost_base * avg_cost_factor  # Only pay for months when billing is active
         year_services_cost = services_cost if year == 1 else 0
         year_net_cash_flow = year_benefits - year_platform_cost - year_services_cost
         
@@ -1552,12 +1972,13 @@ def calculate_scenario_results(benefits_multiplier, implementation_delay_multipl
         'annual_benefits': scenario_benefits
     }
 
-def calculate_payback_months(annual_benefits, annual_platform_cost, one_time_services_cost, 
+def calculate_payback_months(annual_benefits, one_time_services_cost, 
                              implementation_delay_months, benefits_ramp_up_months, billing_start_month, max_months_eval=60):
     """Calculates the payback period in months."""
     
     cumulative_cash_flow = 0
     payback_month = "N/A"
+    evaluation_years = st.session_state.get('evaluation_years', 3)
     
     # Initial investment (services cost) incurred at the beginning
     cumulative_cash_flow -= one_time_services_cost
@@ -1569,7 +1990,12 @@ def calculate_payback_months(annual_benefits, annual_platform_cost, one_time_ser
         cost_factor = calculate_platform_cost_factor(month, billing_start_month)
         
         monthly_benefit = (annual_benefits / 12) * benefit_factor
-        monthly_platform_cost = (annual_platform_cost / 12) * cost_factor
+        
+        # Determine which year this month falls into
+        current_year = ((month - 1) // 12) + 1
+        current_year = min(current_year, evaluation_years)  # Cap at max evaluation years
+        annual_platform_cost_for_year = st.session_state.get(f'platform_cost_year_{current_year}', 0)
+        monthly_platform_cost = (annual_platform_cost_for_year / 12) * cost_factor
         
         monthly_net_cash_flow = monthly_benefit - monthly_platform_cost
         
@@ -1584,8 +2010,9 @@ def calculate_payback_months(annual_benefits, annual_platform_cost, one_time_ser
 def create_implementation_timeline_chart(implementation_delay_months, ramp_up_months, billing_start_month, evaluation_years, currency_symbol, total_annual_benefits):
     """Create a visual timeline showing benefit realization and cost timeline over time"""
     
-    # Get platform cost from session state
-    platform_cost = st.session_state.get('platform_cost', 0)
+    # For timeline chart, use average platform cost across years
+    total_platform_cost = sum([st.session_state.get(f'platform_cost_year_{year}', 0) for year in range(1, evaluation_years + 1)])
+    avg_platform_cost = total_platform_cost / evaluation_years if evaluation_years > 0 else 0
     
     total_months = evaluation_years * 12
     months = list(range(1, total_months + 1))
@@ -1599,7 +2026,7 @@ def create_implementation_timeline_chart(implementation_delay_months, ramp_up_mo
         
         benefit_realization_factors.append(benefit_factor * 100)
         monthly_benefits.append(total_annual_benefits * benefit_factor / 12)
-        monthly_costs.append(platform_cost * cost_factor / 12)
+        monthly_costs.append(avg_platform_cost * cost_factor / 12)
     
     fig = go.Figure()
     
@@ -2069,6 +2496,19 @@ st.sidebar.header("Customize Your Financial Impact Model Inputs")
 # Solution Name Input
 solution_name = st.sidebar.text_input("Solution Name", value="AIOPs", key="solution_name")
 
+# --- Financial Settings (moved up to get evaluation_years early) ---
+st.sidebar.subheader("📊 Financial Analysis Settings")
+evaluation_years = st.sidebar.slider(
+    "Evaluation Period (Years)", 
+    1, 5, 3,
+    key="evaluation_years"
+)
+discount_rate = st.sidebar.slider(
+    "NPV Discount Rate (%)", 
+    0, 20, 3,
+    key="discount_rate"
+)
+
 # --- Implementation Timeline ---
 st.sidebar.subheader("📅 Implementation Timeline")
 implementation_delay_months = st.sidebar.slider(
@@ -2253,6 +2693,16 @@ alert_triage_time_saved_pct = st.sidebar.slider(
     key="alert_triage_time_saved_pct"
 )
 
+# --- NEW: Legal FTE Constraints for Alerts ---
+st.sidebar.markdown("**⚖️ Legal FTE Constraints**")
+legal_min_alert_ftes = st.sidebar.number_input(
+    "Legal Minimum Alert Management FTEs",
+    value=0,
+    min_value=0,
+    key="legal_min_alert_ftes",
+    help="Minimum number of FTEs required by law/regulation for alert management (e.g., 4 people for 24/7 coverage)"
+)
+
 # --- INCIDENT INPUTS ---
 st.sidebar.subheader("🔧 Incident Management")
 incident_volume = st.sidebar.number_input(
@@ -2285,6 +2735,15 @@ incident_triage_time_savings_pct = st.sidebar.slider(
     "% Incident Triage Time Reduction", 
     0, 100, 0,
     key="incident_triage_time_savings_pct"
+)
+
+# --- NEW: Legal FTE Constraints for Incidents ---
+legal_min_incident_ftes = st.sidebar.number_input(
+    "Legal Minimum Incident Management FTEs",
+    value=0,
+    min_value=0,
+    key="legal_min_incident_ftes",
+    help="Minimum number of FTEs required by law/regulation for incident management (e.g., compliance requirements)"
 )
 
 # --- MAJOR INCIDENT INPUTS ---
@@ -2390,31 +2849,35 @@ opex_savings = st.sidebar.number_input(
     key="opex_savings"
 )
 
-# --- COSTS ---
+# --- COSTS - MULTI-YEAR PLATFORM COSTS ---
 st.sidebar.subheader("💳 Solution Costs")
-platform_cost = st.sidebar.number_input(
-    "Annual Subscription Cost (After discounts)", 
-    value=0,
-    key="platform_cost"
-)
+
+# Multi-year platform costs based on evaluation period
+st.sidebar.markdown("**Annual Subscription Costs (After discounts):**")
+st.sidebar.caption("💡 Enter costs for each year of the evaluation period (e.g., different license percentages)")
+
+platform_costs = {}
+for year in range(1, evaluation_years + 1):
+    platform_costs[year] = st.sidebar.number_input(
+        f"Year {year} Subscription Cost", 
+        value=0,
+        key=f"platform_cost_year_{year}",
+        help=f"Annual subscription cost for year {year} (e.g., based on % of licensed pool used)"
+    )
+
+# Calculate total platform cost for backward compatibility
+total_platform_cost = sum(platform_costs.values())
+
 services_cost = st.sidebar.number_input(
     "Implementation & Services (One-Time)", 
     value=0,
     key="services_cost"
 )
 
-# --- FINANCIAL SETTINGS ---
-st.sidebar.subheader("📊 Financial Analysis Settings")
-evaluation_years = st.sidebar.slider(
-    "Evaluation Period (Years)", 
-    1, 5, 3,
-    key="evaluation_years"
-)
-discount_rate = st.sidebar.slider(
-    "NPV Discount Rate (%)", 
-    0, 20, 3,
-    key="discount_rate"
-) / 100
+# Note: Individual year costs are automatically stored in session state by the widgets
+# We just need to store the total for backward compatibility
+st.session_state['total_platform_cost'] = total_platform_cost
+st.session_state['platform_cost'] = total_platform_cost  # For backward compatibility
 
 # --- INPUT VALIDATION ---
 st.sidebar.markdown("---")
@@ -2473,6 +2936,8 @@ st.session_state['total_discovery_cost'] = total_discovery_cost
 st.session_state['discovery_fte_percentage'] = discovery_fte_percentage
 st.session_state['asset_discovery_savings'] = asset_discovery_savings
 
+# Note: legal_min_alert_ftes and legal_min_incident_ftes are automatically stored in session state by the widgets
+
 # Calculate baseline savings
 avoided_alerts = alert_volume * (alert_reduction_pct / 100)
 remaining_alerts = alert_volume - avoided_alerts
@@ -2507,6 +2972,9 @@ total_annual_benefits = (
 )
 
 st.session_state['total_annual_benefits'] = total_annual_benefits
+
+# FIXED: Ensure discount rate is properly converted to decimal
+discount_rate_decimal = discount_rate / 100  # Convert 3% to 0.03
 
 # Calculate scenarios
 scenarios = {
@@ -2585,7 +3053,6 @@ for scenario_name, params in scenarios.items():
     
     s_result['payback_months'] = calculate_payback_months(
         annual_benefits=scenario_annual_benefits_for_payback,
-        annual_platform_cost=platform_cost,
         one_time_services_cost=services_cost,
         implementation_delay_months=scenario_impl_delay_for_payback,
         benefits_ramp_up_months=benefits_ramp_up_months,
@@ -2595,7 +3062,12 @@ for scenario_name, params in scenarios.items():
 
 # --- Main App Layout ---
 st.title(f"Enhanced Business Value Assessment for {solution_name} Implementation")
-st.markdown("This comprehensive tool provides detailed financial analysis with enhanced ROI calculations, calculation reasoning, and data quality validation.")
+st.markdown("This comprehensive tool provides detailed financial analysis with enhanced ROI calculations, multi-year platform costs, calculation reasoning, and **legal FTE constraint analysis**.")
+
+# NEW: Display legal FTE constraints summary if configured
+constraints = check_legal_fte_constraints()
+if any(c['constraint_active'] for c in constraints):
+    st.warning("⚖️ **Legal FTE constraints are affecting your benefit calculations.** See the detailed analysis in the validation section below.")
 
 # Display calculation health check in main area
 calc_issues = check_calculation_health()
@@ -2625,6 +3097,57 @@ with col3:
     expected_payback_months = scenario_results['Expected']['payback_months']
     st.metric(label="Payback Period",
               value=f"{expected_payback_months}")
+
+# --- NEW: Legal FTE Constraints Impact Summary ---
+constrained_benefits = calculate_constrained_fte_benefits()
+if constrained_benefits['constraints_active']:
+    st.markdown("---")
+    st.subheader("⚖️ Legal FTE Constraints Impact")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric(
+            "Constrained Direct Savings", 
+            f"{currency_symbol}{constrained_benefits['total_constrained_savings']:,.0f}",
+            help="Cost savings limited by legal FTE minimums"
+        )
+    
+    with col2:
+        st.metric(
+            "Reallocation Value", 
+            f"{currency_symbol}{constrained_benefits['total_reallocation_value']:,.0f}",
+            help="Value from freed capacity for other work"
+        )
+    
+    with col3:
+        total_value = constrained_benefits['total_constrained_savings'] + constrained_benefits['total_reallocation_value']
+        st.metric(
+            "Total Value (Direct + Reallocation)", 
+            f"{currency_symbol}{total_value:,.0f}",
+            help="Combined value considering legal constraints"
+        )
+    
+    st.info("ℹ️ **Legal constraints don't eliminate benefits** - they change how value is realized (direct cost savings vs. capacity reallocation).")
+
+# --- Multi-Year Cost Summary ---
+if any(platform_costs.values()):
+    st.markdown("---")
+    st.subheader("💳 Multi-Year Subscription Cost Summary")
+    
+    cost_col1, cost_col2 = st.columns(2)
+    
+    with cost_col1:
+        st.markdown("**Annual Subscription Costs:**")
+        for year, cost in platform_costs.items():
+            if cost > 0:
+                st.markdown(f"• **Year {year}:** {currency_symbol}{cost:,.0f}")
+    
+    with cost_col2:
+        st.metric("Total Platform Investment", f"{currency_symbol}{total_platform_cost:,.0f}")
+        if evaluation_years > 0:
+            avg_annual_cost = total_platform_cost / evaluation_years
+            st.metric("Average Annual Cost", f"{currency_symbol}{avg_annual_cost:,.0f}")
 
 # Asset Management Value Summary (no CMDB)
 if asset_discovery_savings > 0:
@@ -2707,13 +3230,76 @@ with calc_tabs[1]:
     
     st.markdown("### How We Calculate Your NPV and ROI:")
     
+    # FIXED: Use the correct discount rate 
+    correct_discount_rate = discount_rate / 100  # Convert percentage to decimal
+    
+    # Debug: Show the actual discount rate being used
+    st.markdown("#### 🔍 Debug Information:")
+    expected_result = scenario_results['Expected']
+    st.write(f"**Sidebar discount rate setting:** {st.session_state.get('discount_rate', 10)}%")
+    st.write(f"**Raw discount_rate variable:** {discount_rate}")
+    st.write(f"**Corrected discount_rate (decimal):** {correct_discount_rate} ({correct_discount_rate*100:.1f}%)")
+    st.write(f"**Final NPV from scenario_results:** {currency_symbol}{expected_result['npv']:,.0f}")
+    st.write(f"**Number of cash flow years:** {len(expected_result['cash_flows'])}")
+    
     # Create detailed calculation table
     calc_data = []
     npv_running_total = 0
     
-    for i, cf in enumerate(scenario_results['Expected']['cash_flows']):
-        present_value = cf['net_cash_flow'] / ((1 + discount_rate) ** cf['year'])
+    # Show raw cash flow data first
+    st.markdown("#### 📊 Raw Cash Flow Data:")
+    for i, cf in enumerate(expected_result['cash_flows']):
+        st.write(f"**Year {cf['year']}:**")
+        st.write(f"  - Benefits: {currency_symbol}{cf['benefits']:,.0f}")
+        st.write(f"  - Platform Cost: {currency_symbol}{cf['platform_cost']:,.0f}")
+        st.write(f"  - Services Cost: {currency_symbol}{cf['services_cost']:,.0f}")
+        st.write(f"  - Net Cash Flow: {currency_symbol}{cf['net_cash_flow']:,.0f}")
+    
+    # Manual NPV calculation for verification - FIXED to use correct discount rate
+    st.markdown("#### 🧮 Manual NPV Verification (Using Correct Discount Rate):")
+    manual_npv = 0
+    for cf in expected_result['cash_flows']:
+        # Use the correct discount rate (0.03 for 3%, not 3.0)
+        present_value = cf['net_cash_flow'] / ((1 + correct_discount_rate) ** cf['year'])
+        manual_npv += present_value
+        discount_factor = 1 / ((1 + correct_discount_rate) ** cf['year'])
+        denominator = (1 + correct_discount_rate) ** cf['year']
+        st.write(f"Year {cf['year']}: {currency_symbol}{cf['net_cash_flow']:,.0f} ÷ (1 + {correct_discount_rate:.3f})^{cf['year']} = {currency_symbol}{cf['net_cash_flow']:,.0f} ÷ {denominator:.4f} = {currency_symbol}{present_value:,.0f}")
+    
+    st.write(f"**Manual NPV Total: {currency_symbol}{manual_npv:,.0f}**")
+    st.write(f"**Stored NPV: {currency_symbol}{expected_result['npv']:,.0f}**")
+    st.write(f"**Difference: {currency_symbol}{abs(manual_npv - expected_result['npv']):,.0f}**")
+    
+    # Check if the stored NPV was calculated using the wrong method
+    st.markdown("#### 🕵️ Investigating Stored NPV Source:")
+    
+    # Let's recalculate the scenario NPV manually to see where the stored value comes from
+    test_npv = 0
+    test_total_costs = 0
+    
+    st.write("**Recalculating scenario NPV from scratch:**")
+    for cf in expected_result['cash_flows']:
+        pv = cf['net_cash_flow'] / ((1 + correct_discount_rate) ** cf['year'])
+        test_npv += pv
+        test_total_costs += cf['platform_cost'] + cf['services_cost']
+        st.write(f"  Year {cf['year']}: PV = {currency_symbol}{pv:,.0f}")
+    
+    st.write(f"**Recalculated NPV: {currency_symbol}{test_npv:,.0f}**")
+    st.write(f"**Total Costs: {currency_symbol}{test_total_costs:,.0f}**")
+    st.write(f"**Recalculated ROI: {(test_npv/test_total_costs*100) if test_total_costs > 0 else 0:.1f}%**")
+    
+    # Check if there's a units issue (maybe stored NPV is not discounted?)
+    undiscounted_total = sum([cf['net_cash_flow'] for cf in expected_result['cash_flows']])
+    st.write(f"**Undiscounted total cash flows: {currency_symbol}{undiscounted_total:,.0f}**")
+    
+    # Create the detailed table
+    for i, cf in enumerate(expected_result['cash_flows']):
+        present_value = cf['net_cash_flow'] / ((1 + correct_discount_rate) ** cf['year'])
         npv_running_total += present_value
+        
+        # Fixed discount factor display
+        discount_factor_value = 1/((1+correct_discount_rate)**cf['year'])
+        discount_rate_pct = correct_discount_rate * 100
         
         calc_data.append({
             'Year': cf['year'],
@@ -2721,21 +3307,31 @@ with calc_tabs[1]:
             'Platform Cost': f"{currency_symbol}{cf['platform_cost']:,.0f}",
             'Services Cost': f"{currency_symbol}{cf['services_cost']:,.0f}",
             'Net Cash Flow': f"{currency_symbol}{cf['net_cash_flow']:,.0f}",
-            'Discount Factor': f"1/(1.{int(discount_rate*100):02d})^{cf['year']} = {1/((1+discount_rate)**cf['year']):.3f}",
+            'Discount Factor': f"1/(1+{discount_rate_pct:.1f}%)^{cf['year']} = {discount_factor_value:.4f}",
             'Present Value': f"{currency_symbol}{present_value:,.0f}",
             'Cumulative NPV': f"{currency_symbol}{npv_running_total:,.0f}"
         })
     
+    st.markdown("#### 📋 Detailed NPV Calculation Table:")
     calc_df = pd.DataFrame(calc_data)
     st.dataframe(calc_df, hide_index=True, use_container_width=True)
     
     col1, col2 = st.columns(2)
     with col1:
-        st.metric("Final NPV", f"{currency_symbol}{scenario_results['Expected']['npv']:,.0f}")
+        st.metric("Calculated NPV (from table)", f"{currency_symbol}{npv_running_total:,.0f}")
         st.metric("Total Investment", f"{currency_symbol}{total_costs_3yr:,.0f}")
     with col2:
-        st.metric("NPV-Based ROI", f"{scenario_results['Expected']['roi']*100:.1f}%")
-        st.metric("Payback Period", scenario_results['Expected']['payback_months'])
+        stored_npv = expected_result['npv']
+        st.metric("Stored NPV (from scenario)", f"{currency_symbol}{stored_npv:,.0f}")
+        if abs(npv_running_total - stored_npv) > 100:  # Allow for small rounding differences
+            st.error(f"⚠️ NPV Mismatch: {currency_symbol}{abs(npv_running_total - stored_npv):,.0f}")
+            st.error("**Action needed: The stored NPV calculation needs to be fixed in the calculate_scenario_results function**")
+        else:
+            st.success("✅ NPV calculations match")
+        
+        calculated_roi = (npv_running_total / total_costs_3yr * 100) if total_costs_3yr > 0 else 0
+        st.metric("Calculated ROI", f"{calculated_roi:.1f}%")
+        st.metric("Stored ROI", f"{expected_result['roi']*100:.1f}%")
 
 with calc_tabs[2]:
     st.subheader("💰 Detailed Benefit Breakdown")
@@ -2886,13 +3482,11 @@ with calc_tabs[3]:
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown(f"""
-        **Annual Platform Costs:**
-        - Year 1: {currency_symbol}{scenario_results['Expected']['cash_flows'][0]['platform_cost']:,.0f}
-        - Year 2: {currency_symbol}{scenario_results['Expected']['cash_flows'][1]['platform_cost']:,.0f}
-        - Year 3: {currency_symbol}{scenario_results['Expected']['cash_flows'][2]['platform_cost']:,.0f}
-        - **Total Platform Costs: {currency_symbol}{sum([cf['platform_cost'] for cf in scenario_results['Expected']['cash_flows']]):,.0f}**
-        """)
+        st.markdown("**Multi-Year Platform Costs:**")
+        for year in range(1, evaluation_years + 1):
+            year_cost = st.session_state.get(f'platform_cost_year_{year}', 0)
+            st.markdown(f"- Year {year}: {currency_symbol}{year_cost:,.0f}")
+        st.markdown(f"- **Total Platform Costs: {currency_symbol}{total_platform_cost:,.0f}**")
     
     with col2:
         st.markdown(f"""
@@ -2901,9 +3495,9 @@ with calc_tabs[3]:
         - **Total One-Time Costs: {currency_symbol}{services_cost:,.0f}**
         
         **Total Investment:**
-        - Platform (3 years): {currency_symbol}{sum([cf['platform_cost'] for cf in scenario_results['Expected']['cash_flows']]):,.0f}
+        - Platform ({evaluation_years} years): {currency_symbol}{total_platform_cost:,.0f}
         - Services (one-time): {currency_symbol}{services_cost:,.0f}
-        - **Total TCO: {currency_symbol}{total_costs_3yr:,.0f}**
+        - **Total TCO: {currency_symbol}{total_platform_cost + services_cost:,.0f}**
         """)
 
 with calc_tabs[4]:
@@ -2920,7 +3514,6 @@ with calc_tabs[4]:
     current_incident_reduction = st.session_state.get('incident_reduction_pct', 0)
     current_mttr_improvement = st.session_state.get('mttr_improvement_pct', 0)
     current_implementation_delay = st.session_state.get('implementation_delay', 6)
-    current_discount_rate = st.session_state.get('discount_rate', 10)
     current_asset_discovery_automation = st.session_state.get('asset_discovery_automation_pct', 0)
     
     # Interactive sliders for key variables
@@ -3017,7 +3610,9 @@ with calc_tabs[4]:
         avg_cost_factor = np.mean(monthly_cost_factors)
         
         year_benefits = interactive_total_benefits * avg_benefit_realization_factor
-        year_platform_cost = platform_cost * interactive_platform_cost_mult * avg_cost_factor
+        # Get year-specific platform cost
+        year_platform_cost_base = st.session_state.get(f'platform_cost_year_{year}', 0)
+        year_platform_cost = year_platform_cost_base * interactive_platform_cost_mult * avg_cost_factor
         year_services_cost = services_cost if year == 1 else 0
         year_net_cash_flow = year_benefits - year_platform_cost - year_services_cost
         
@@ -3232,7 +3827,12 @@ with viz_tabs[3]:
             cost_factor = calculate_platform_cost_factor(month, billing_start_month)
             
             monthly_benefit = (total_annual_benefits / 12) * benefit_factor
-            monthly_cost = (platform_cost / 12) * cost_factor
+            
+            # Determine which year this month falls into for platform cost
+            current_year = ((month - 1) // 12) + 1
+            current_year = min(current_year, evaluation_years)
+            annual_platform_cost_for_year = st.session_state.get(f'platform_cost_year_{current_year}', 0)
+            monthly_cost = (annual_platform_cost_for_year / 12) * cost_factor
             
             cum_benefit += monthly_benefit
             cum_cost += monthly_cost
@@ -3278,19 +3878,48 @@ st.markdown("---")
 
 # --- Value Reallocation & FTE Equivalency ---
 st.subheader("🚀 Value Reallocation & FTE Equivalency")
-col1, col2 = st.columns(2)
 
-with col1:
-    st.write(f"**Cost Available for Higher Margin Projects (Annually):** {currency_symbol}{total_operational_savings_from_time_saved:,.0f}")
-    if effective_avg_fte_salary > 0:
-        st.write(f"**Equivalent FTEs from Savings (Annually):** {equivalent_ftes_from_savings:,.1f} FTEs")
-    else:
-        st.write("Average FTE salary not provided, unable to calculate equivalent FTEs.")
+# NEW: Show both unconstrained and constrained scenarios
+constrained_benefits = calculate_constrained_fte_benefits()
 
-with col2:
-    if equivalent_ftes_from_savings > 0:
-        st.metric("Strategic Capacity Gained", f"{equivalent_ftes_from_savings:.1f} FTEs")
-        st.metric("Value per FTE Equivalent", f"{currency_symbol}{total_operational_savings_from_time_saved/equivalent_ftes_from_savings:,.0f}")
+if constrained_benefits['constraints_active']:
+    # Show comparison when constraints are active
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("#### 📊 Without Legal Constraints (Theoretical)")
+        st.write(f"**Cost Available for Higher Margin Projects (Annually):** {currency_symbol}{total_operational_savings_from_time_saved:,.0f}")
+        if effective_avg_fte_salary > 0:
+            st.write(f"**Equivalent FTEs from Savings (Annually):** {equivalent_ftes_from_savings:,.1f} FTEs")
+        else:
+            st.write("Average FTE salary not provided, unable to calculate equivalent FTEs.")
+    
+    with col2:
+        st.markdown("#### ⚖️ With Legal Constraints (Realistic)")
+        total_constrained_value = constrained_benefits['total_constrained_savings'] + constrained_benefits['total_reallocation_value']
+        st.write(f"**Direct Cost Savings:** {currency_symbol}{constrained_benefits['total_constrained_savings']:,.0f}")
+        st.write(f"**Reallocation Value:** {currency_symbol}{constrained_benefits['total_reallocation_value']:,.0f}")
+        st.write(f"**Total Value:** {currency_symbol}{total_constrained_value:,.0f}")
+        
+        if effective_avg_fte_salary > 0:
+            constrained_equivalent_ftes = total_constrained_value / effective_avg_fte_salary
+            st.write(f"**Equivalent FTEs from Total Value:** {constrained_equivalent_ftes:,.1f} FTEs")
+
+else:
+    # Show standard scenario when no constraints
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.write(f"**Cost Available for Higher Margin Projects (Annually):** {currency_symbol}{total_operational_savings_from_time_saved:,.0f}")
+        if effective_avg_fte_salary > 0:
+            st.write(f"**Equivalent FTEs from Savings (Annually):** {equivalent_ftes_from_savings:,.1f} FTEs")
+        else:
+            st.write("Average FTE salary not provided, unable to calculate equivalent FTEs.")
+
+    with col2:
+        if equivalent_ftes_from_savings > 0:
+            st.metric("Strategic Capacity Gained", f"{equivalent_ftes_from_savings:.1f} FTEs")
+            st.metric("Value per FTE Equivalent", f"{currency_symbol}{total_operational_savings_from_time_saved/equivalent_ftes_from_savings:,.0f}")
 
 st.markdown("---")
 
@@ -3310,6 +3939,13 @@ config_summary = f"""
 - **Implementation Delay:** {implementation_delay_months} months
 - **Benefits Ramp-up:** {benefits_ramp_up_months} months
 
+**Legal FTE Constraints:** {"Active" if constrained_benefits['constraints_active'] else "Not Active"}
+- **Minimum Alert FTEs:** {legal_min_alert_ftes}
+- **Minimum Incident FTEs:** {legal_min_incident_ftes}
+
+**Platform Costs by Year:**
+""" + "\n".join([f"- Year {year}: {currency_symbol}{cost:,.0f}" for year, cost in platform_costs.items() if cost > 0]) + f"""
+
 **Results Summary:**
 - **Expected NPV:** {currency_symbol}{scenario_results['Expected']['npv']:,.0f}
 - **Expected ROI:** {scenario_results['Expected']['roi']*100:.1f}%
@@ -3319,6 +3955,13 @@ config_summary = f"""
 - **Equivalent FTEs from Savings:** {equivalent_ftes_from_savings:.1f} FTEs
 """
 
+# Add constraint impact to summary if active
+if constrained_benefits['constraints_active']:
+    config_summary += f"""
+- **Constrained Direct Savings:** {currency_symbol}{constrained_benefits['total_constrained_savings']:,.0f}
+- **Reallocation Value:** {currency_symbol}{constrained_benefits['total_reallocation_value']:,.0f}
+"""
+
 with st.expander("📊 View Complete Configuration Summary"):
     st.markdown(config_summary)
 
@@ -3326,14 +3969,16 @@ with st.expander("📊 View Complete Configuration Summary"):
 st.markdown("---")
 col1, col2 = st.columns(2)
 with col1:
-    st.caption("**Enhanced Business Value Assessment Tool v2.2** - Now with Calculation Reasoning")
+    st.caption("**Enhanced Business Value Assessment Tool v2.4** - Now with Legal FTE Constraints")
 with col2:
     st.caption(f"**Analysis generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 # Pro tips
 st.info("💡 **Pro Tips:**")
 st.markdown("""
-- **🔍 Calculation Reasoning**: Use the new Data Quality Dashboard to understand exactly how your numbers are calculated
+- **⚖️ Legal FTE Constraints**: NEW! Configure minimum required FTEs for regulatory compliance and see how constraints affect your ROI
+- **💳 Multi-Year Platform Costs**: Configure different subscription costs for each year based on your license usage growth
+- **🔍 Calculation Reasoning**: Use the enhanced Data Quality Dashboard to understand exactly how your numbers are calculated
 - **🚨 Red Flags**: Watch for critical issues that indicate data problems - the tool will flag unrealistic calculations
 - **📊 Step-by-Step Breakdown**: See detailed calculation breakdowns to build confidence in your business case
 - **Company Logo**: Upload your logo in the sidebar to create professional PDF executive summaries
@@ -3341,5 +3986,4 @@ st.markdown("""
 - **Export/Import**: Save configurations for future reference or stakeholder sharing
 """)
 
-st.success("🎯 **Latest Enhancement**: This tool now includes advanced calculation reasoning and red flag detection to help you identify when customer data doesn't make sense, ensuring more accurate and credible business value assessments.")
-
+st.success("🎯 **Latest Enhancement**: This tool now accounts for legal FTE constraints! Many companies have regulatory requirements to maintain minimum staffing levels (e.g., 4 people for 24/7 coverage). The tool now calculates both direct cost savings and reallocation value when efficiency gains are limited by legal minimums, giving you a more realistic view of achievable benefits.")
