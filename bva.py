@@ -345,7 +345,7 @@ if 'head_of_support_story' not in st.session_state:
 
 # --- SIDEBAR IMPORT CONFIGURATION (Moved to the very top of app logic) ---
 with st.sidebar:
-    st.header("📑 Reports & Configuration")
+    st.header("📑 Model Configuration")
     
     uploaded_config = st.file_uploader("Import Configuration File", type=['json', 'csv'])
     apply_config = st.button("Apply Imported Configuration")
